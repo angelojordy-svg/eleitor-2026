@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eleitor 2026 — Resultados (snapshot offline)</title>
+<style>
+  :root {
+    --azul: #0b3a66;
+    --azul-claro: #1f6fb2;
+    --fundo: #eef2f6;
+    --card: #ffffff;
+    --texto: #1b2a3a;
+    --suave: #5b6b7c;
+    --verde: #1e8e3e;
+    --barra: #d9e2ec;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+    background: var(--fundo);
+    color: var(--texto);
+  }
+  header {
+    background: linear-gradient(135deg, var(--azul) 0%, var(--azul-claro) 100%);
+    color: #fff;
+    padding: 18px 22px 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18);
+  }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: .3px; }
+  header .meta { margin-top: 6px; font-size: 13px; opacity: .92; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header .aviso {
+    display: inline-block;
+    margin-top: 8px;
+    background: rgba(255,255,255,.16);
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-size: 12px;
+  }
+  #btn-atualizar {
+    font: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    background: #ffffff;
+    color: var(--azul);
+    border: 2px solid #ffffff;
+    border-radius: 999px;
+    padding: 8px 18px;
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,.22);
+    white-space: nowrap;
+  }
+  #btn-atualizar:hover { background: #eaf3fb; }
+  #btn-atualizar:disabled { opacity: .7; cursor: wait; }
+  .toast {
+    position: fixed;
+    bottom: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--azul);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.25);
+    z-index: 50;
+    display: none;
+    max-width: 90vw;
+  }
+  .toast.erro { background: #b0413e; }
+  nav.trilha {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 22px;
+    background: #fff;
+    border-bottom: 1px solid #dde5ee;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  nav.trilha button, nav.trilha a {
+    font: inherit;
+    font-size: 13px;
+    color: var(--azul-claro);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+    text-decoration: none;
+  }
+  nav.trilha button:hover, nav.trilha a:hover { background: #e8f0f8; }
+  nav.trilha .separador { color: var(--suave); }
+  nav.trilha .atual { color: var(--texto); font-weight: 600; }
+  nav.trilha .voltar {
+    background: var(--azul);
+    color: #fff !important;
+    padding: 6px 14px;
+    font-weight: 600;
+  }
+  nav.trilha .voltar:hover { background: var(--azul-claro); }
+  nav.trilha .limpar {
+    margin-left: auto;
+    border: 1px solid #c7d4e2;
+    padding: 6px 14px;
+    color: var(--suave) !important;
+  }
+  main { max-width: 1180px; margin: 0 auto; padding: 22px; }
+  h2 { margin: 4px 0 14px; font-size: 20px; color: var(--azul); }
+  h3 { margin: 22px 0 10px; font-size: 16px; color: var(--azul); }
+  .cards-nivel {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 16px;
+    margin: 18px 0 26px;
+  }
+  .card-nivel {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    cursor: pointer;
+    border: 1px solid #dde5ee;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  .card-nivel:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(11,58,102,.14); }
+  .card-nivel .icone { font-size: 30px; }
+  .card-nivel h3 { margin: 10px 0 6px; font-size: 17px; color: var(--texto); }
+  .card-nivel p { margin: 0; font-size: 13px; color: var(--suave); }
+  .busca { position: relative; margin: 8px 0 20px; }
+  .busca input {
+    width: 100%;
+    padding: 13px 16px;
+    font: inherit;
+    font-size: 15px;
+    border: 1px solid #c7d4e2;
+    border-radius: 10px;
+    background: #fff;
+  }
+  .busca input:focus { outline: 2px solid var(--azul-claro); border-color: transparent; }
+  .resultados-busca {
+    position: absolute;
+    left: 0; right: 0; top: 52px;
+    background: #fff;
+    border: 1px solid #dde5ee;
+    border-radius: 10px;
+    box-shadow: 0 10px 24px rgba(11,58,102,.16);
+    max-height: 320px;
+    overflow: auto;
+    z-index: 20;
+  }
+  .resultados-busca div {
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 14px;
+    border-bottom: 1px solid #f0f4f8;
+  }
+  .resultados-busca div:last-child { border-bottom: none; }
+  .resultados-busca div:hover { background: #e8f0f8; }
+  .resultados-busca .uf { color: var(--suave); font-size: 12px; margin-left: 8px; }
+  .resultados-busca .aviso-sem { color: #b0413e; font-size: 12px; margin-left: 8px; }
+  .painel {
+    background: var(--card);
+    border-radius: 12px;
+    border: 1px solid #dde5ee;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .progresso { height: 10px; background: var(--barra); border-radius: 999px; overflow: hidden; margin: 10px 0 6px; }
+  .progresso span { display: block; height: 100%; background: linear-gradient(90deg, var(--azul-claro), #35a06b); }
+  .linha-info { font-size: 13px; color: var(--suave); }
+  .cards-cand {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+  }
+  .cand {
+    background: var(--card);
+    border: 1px solid #dde5ee;
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    position: relative;
+  }
+  .cand.clicavel { cursor: pointer; transition: box-shadow .12s ease, transform .12s ease; }
+  .cand.clicavel:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(11,58,102,.14); }
+  .cand .rank {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    font-size: 12px;
+    font-weight: 800;
+    color: #b9c8d8;
+  }
+  .cand .ver-mais { font-size: 12px; color: var(--azul-claro); margin-top: 4px; font-weight: 600; }
+  .cand.eleito { border-color: var(--verde); box-shadow: 0 0 0 1px var(--verde) inset; }
+  .foto {
+    width: 64px; height: 64px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: #dce7f2;
+    flex: 0 0 64px;
+  }
+  .iniciais {
+    width: 64px; height: 64px;
+    border-radius: 10px;
+    background: #dce7f2;
+    color: var(--azul);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 20px;
+    flex: 0 0 64px;
+  }
+  .cand .info { flex: 1; min-width: 0; }
+  .cand .nome { font-weight: 700; font-size: 15px; }
+  .cand .partido { color: var(--suave); font-size: 13px; margin: 2px 0 6px; }
+  .cand .votos { font-size: 14px; font-weight: 600; }
+  .cand .votos small { color: var(--suave); font-weight: 400; margin-left: 6px; }
+  .selo {
+    display: inline-block;
+    background: var(--verde);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 2px 10px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+  table.tabela {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid #dde5ee;
+    font-size: 14px;
+  }
+  table.tabela th, table.tabela td {
+    padding: 9px 12px;
+    text-align: left;
+    border-bottom: 1px solid #eef2f6;
+  }
+  table.tabela th { background: #f4f8fb; color: var(--azul); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+  table.tabela tr:last-child td { border-bottom: none; }
+  table.tabela tr.clicavel { cursor: pointer; }
+  table.tabela tr.clicavel:hover { background: #f0f6fc; }
+  table.tabela td.num, table.tabela th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .abas { display: flex; gap: 8px; flex-wrap: wrap; margin: 6px 0 16px; }
+  .abas button {
+    font: inherit;
+    font-size: 14px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: 1px solid #c7d4e2;
+    background: #fff;
+    color: var(--azul);
+    cursor: pointer;
+  }
+  .abas button.ativa { background: var(--azul); color: #fff; border-color: var(--azul); }
+  .grade-uf {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+  }
+  .card-uf {
+    background: #fff;
+    border: 1px solid #dde5ee;
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: transform .1s ease, box-shadow .1s ease;
+  }
+  .card-uf:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(11,58,102,.12); }
+  .card-uf .sigla { font-size: 18px; font-weight: 800; color: var(--azul); }
+  .card-uf .nome { font-size: 12px; color: var(--suave); margin: 2px 0 8px; }
+  .card-uf .lider { font-size: 13px; font-weight: 600; }
+  .card-uf .pct { font-size: 12px; color: var(--suave); }
+  .vazio { color: var(--suave); font-size: 14px; padding: 12px 0; }
+  .fonte { max-width: 1180px; margin: 0 auto; padding: 0 22px 26px; color: var(--suave); font-size: 12px; }
+  .dica { color: var(--suave); font-size: 13px; margin: 10px 0 0; }
+  @media (max-width: 640px) {
+    main { padding: 14px; }
+    .cand { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Eleitor 2026 — Resultados</h1>
+  <div class="meta">
+    <span id="meta"></span>
+    <button id="btn-atualizar" onclick="atualizarOnline()" title="Busca os dados mais recentes direto do TSE (precisa de internet)">↻ Atualizar online</button>
+  </div>
+  <span class="aviso">snapshot offline gerado do TSE — use "Atualizar online" ou regenere o arquivo para dados mais novos</span>
+</header>
+<div class="toast" id="toast"></div>
+<nav class="trilha" id="trilha"></nav>
+<main id="app"></main>
+<div class="fonte">Fonte: Tribunal Superior Eleitoral (resultados.tse.jus.br) — artefato offline para consulta. Sem vínculo oficial.</div>
+
+<script>
+const DADOS = /*__DADOS__*/;
+
+const $ = (sel) => document.querySelector(sel);
+const fmt = (n) => (n || 0).toLocaleString("pt-BR");
+const pct = (n) => (n || 0).toFixed(2).replace(".", ",") + "%";
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const iniciais = (nome) => (nome || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase();
+
+function fotoHTML(c) {
+  if (c.foto) return `<img class="foto" src="${c.foto}" alt="">`;
+  return `<div class="iniciais">${esc(iniciais(c.nome))}</div>`;
+}
+
+const ELEICAO_DO_CARGO = { "1": 6257, "3": 6259, "5": 6259, "6": 6259, "7": 6259, "8": 6259, "25": 6261 };
+
+function rotaCandidato(ctx, numero) {
+  if (!ctx) return "";
+  if (ctx.origem === "brasil") return `#/candidato/brasil/br/${ctx.cargo}/${numero}`;
+  if (ctx.origem === "estado") return `#/candidato/estado/${ctx.uf}/${ctx.cargo}/${numero}`;
+  return `#/candidato/municipio/${ctx.uf}/${ctx.cargo}/${numero}?m=${ctx.codigo}`;
+}
+
+function cardCandidato(c, ctx, posicao) {
+  const selo = c.e ? '<span class="selo">ELEITO</span>' : "";
+  const rank = posicao ? `<div class="rank">${posicao}º</div>` : "";
+  const rota = rotaCandidato(ctx, c.n);
+  const classe = `cand ${c.e ? "eleito" : ""} ${rota ? "clicavel" : ""}`;
+  const clique = rota ? ` onclick="location.hash='${rota}'"` : "";
+  return `<div class="${classe}"${clique}>
+    ${rank}
+    ${fotoHTML(c)}
+    <div class="info">
+      <div class="nome">${esc(c.nome)}${selo}</div>
+      <div class="partido">${esc(c.p)} • Nº ${esc(c.n)}</div>
+      <div class="votos">${fmt(c.v)} votos <small>${pct(c.pct)}</small></div>
+      ${rota ? '<div class="ver-mais">ver página do candidato →</div>' : ""}
+    </div>
+  </div>`;
+}
+
+function painelResultado(res, titulo, ctx) {
+  const t = res.tot || {};
+  const v = res.votos || {};
+  const eleitos = (res.cands || []).filter((c) => c.e);
+  const notaLocal = ctx && ctx.origem === "brasil"
+    ? "Ordenado pelos votos do Brasil"
+    : ctx && ctx.origem === "estado"
+      ? "Ordenado pelos votos do estado"
+      : ctx && ctx.origem === "municipio"
+        ? (ctx.zona ? "Ordenado pelos votos desta zona" : "Ordenado pelos votos deste município")
+        : "";
+  return `<div class="painel">
+    <h2>${esc(titulo || res.cargo_nome)}</h2>
+    <div class="progresso"><span style="width:${Math.min(100, t.pct || 0)}%"></span></div>
+    <div class="linha-info">
+      Seções totalizadas: <strong>${fmt(t.st)}</strong> de ${fmt(t.ts)} (${pct(t.pct)}) •
+      gerado em ${esc(t.gerado || "—")}
+    </div>
+    <div class="linha-info">
+      Votos válidos: <strong>${fmt(v.validos)}</strong> • Brancos: ${fmt(v.brancos)} •
+      Nulos: ${fmt(v.nulos)} • Anulados: ${fmt(v.anulados)}
+    </div>
+    ${notaLocal ? `<div class="linha-info" style="margin-top:6px"><em>${esc(notaLocal)}</em></div>` : ""}
+    ${eleitos.length ? `<div class="linha-info" style="margin-top:8px;color:var(--verde);font-weight:600">
+      Eleitos: ${eleitos.map((c) => esc(c.nome) + " (" + esc(c.p) + ")").join(", ")}
+    </div>` : ""}
+  </div>
+  <div class="cards-cand">${(res.cands || []).map((c, i) => cardCandidato(c, ctx, i + 1)).join("")}</div>`;
+}
+
+function tabsCargos(cargos, atual, rotaBase) {
+  return `<div class="abas">${Object.keys(cargos).map((cg) =>
+    `<button class="${cg === atual ? "ativa" : ""}" onclick="location.hash='${rotaBase}?cargo=${cg}'">${esc(DADOS.cargos[cg] || cg)}</button>`
+  ).join("")}</div>`;
+}
+
+function parseHash() {
+  const bruto = location.hash.replace(/^#\/?/, "");
+  const [caminho, query] = bruto.split("?");
+  const partes = caminho.split("/").filter(Boolean);
+  const params = new URLSearchParams(query || "");
+  return { partes, params };
+}
+
+function acharMunicipio(uf, codigo) {
+  return (DADOS.municipios || []).find((m) => m.uf === uf && m.codigo === codigo);
+}
+
+function vazio(msg) { return `<div class="vazio">${esc(msg)}</div>`; }
+
+/* ---------- Views ---------- */
+
+function viewHome() {
+  return `<h2>Onde você quer consultar?</h2>
+  <div class="cards-nivel">
+    <div class="card-nivel" onclick="location.hash='#/brasil'">
+      <div class="icone">🇧🇷</div><h3>Nacional</h3>
+      <p>Resultado de Presidente no Brasil inteiro, direto — sem preencher mais nada.</p>
+    </div>
+    <div class="card-nivel" onclick="location.hash='#/estados'">
+      <div class="icone">🏛️</div><h3>Estadual</h3>
+      <p>Escolha o estado e veja Governador e Senador. Só a UF, nada mais.</p>
+    </div>
+    <div class="card-nivel" onclick="location.hash='#/municipios'">
+      <div class="icone">🏙️</div><h3>Municipal</h3>
+      <p>Busque o município e desça até zona e seção (urna), com votos por candidato.</p>
+    </div>
+  </div>
+  <div class="busca">
+    <input id="campo-busca" type="search" placeholder="Ou digite o nome de um município (ex: Ananindeua, Parauapebas)..." autocomplete="off">
+    <div id="lista-busca" class="resultados-busca" style="display:none"></div>
+  </div>
+  <p class="dica">Dica: use o botão <strong>← Voltar</strong> no topo (e o do navegador) a qualquer momento; <strong>Limpar</strong> zera a pesquisa.</p>`;
+}
+
+function viewBrasil() {
+  if (!DADOS.brasil) return vazio("Sem dados nacionais neste snapshot.");
+  return painelResultado(DADOS.brasil, "Presidente — Brasil", { origem: "brasil", cargo: "1" });
+}
+
+function viewEstados() {
+  const estados = DADOS.estados || [];
+  if (!estados.length) return vazio("Sem dados estaduais neste snapshot.");
+  return `<h2>Estados — Governador e Senador</h2>
+  <div class="grade-uf">${estados.map((e) => {
+    const gov = e.cargos["3"];
+    const lider = gov && gov.cands && gov.cands[0];
+    return `<div class="card-uf" onclick="location.hash='#/estado/${e.uf}'">
+      <div class="sigla">${esc(e.uf.toUpperCase())}</div>
+      <div class="nome">${esc(e.nome)}</div>
+      ${lider ? `<div class="lider">${esc(lider.nome)}</div><div class="pct">${pct(lider.pct)} • ${esc(lider.p)}</div>` : `<div class="pct">sem dados</div>`}
+    </div>`;
+  }).join("")}</div>`;
+}
+
+function viewEstado(uf, params) {
+  const estado = (DADOS.estados || []).find((e) => e.uf === uf);
+  if (!estado) return vazio("Estado não encontrado neste snapshot.");
+  const cargos = estado.cargos || {};
+  const chaves = Object.keys(cargos);
+  if (!chaves.length) return vazio("Sem dados para este estado.");
+  let atual = params.get("cargo");
+  if (!atual || !cargos[atual]) atual = chaves[0];
+  return `<h2>${esc(estado.nome)} (${esc(uf.toUpperCase())})</h2>
+    ${tabsCargos(cargos, atual, "#/estado/" + uf)}
+    ${painelResultado(cargos[atual], DADOS.cargos[atual] + " — " + estado.nome, { origem: "estado", uf: uf, cargo: atual })}`;
+}
+
+function viewMunicipios() {
+  return `<h2>Municípios</h2>
+  <div class="busca">
+    <input id="campo-busca" type="search" placeholder="Digite o nome do município..." autocomplete="off">
+    <div id="lista-busca" class="resultados-busca" style="display:none"></div>
+  </div>
+  <div class="painel">
+    <h3 style="margin-top:0">Incluídos neste snapshot (com zonas e seções)</h3>
+    ${(DADOS.municipios || []).length
+      ? `<table class="tabela"><thead><tr><th>Município</th><th>UF</th><th>Código</th><th>Zonas</th><th></th></tr></thead><tbody>
+        ${(DADOS.municipios || []).map((m) => {
+          const zonas = Object.keys(m.secoes_por_zona || {});
+          return `<tr class="clicavel" onclick="location.hash='#/municipio/${m.uf}/${m.codigo}'">
+            <td>${esc(m.nome)}</td><td>${esc(m.uf.toUpperCase())}</td><td>${esc(m.codigo)}</td>
+            <td>${zonas.length ? zonas.map(esc).join(", ") : "—"}</td><td>ver →</td></tr>`;
+        }).join("")}
+      </tbody></table>`
+      : vazio("Nenhum município incluído. Gere novamente com --municipio Nome/UF.")}
+  </div>`;
+}
+
+function viewMunicipio(uf, codigo, params) {
+  const m = acharMunicipio(uf, codigo);
+  if (!m) {
+    return vazio("Município sem dados neste snapshot. Regenere com: eleitor html --municipio Nome/UF");
+  }
+  const cargos = m.cargos || {};
+  const chaves = Object.keys(cargos);
+  if (!chaves.length) return vazio("Sem resultados para este município.");
+  let atual = params.get("cargo");
+  if (!atual || !cargos[atual]) atual = chaves.includes("3") ? "3" : chaves[0];
+  const info = cargos[atual];
+  const zonas = (info.zonas || []).slice().sort((a, b) => a.zona.localeCompare(b.zona));
+  const secoes = m.secoes_por_zona || {};
+
+  const tabelaZonas = zonas.length ? `<h3>Zonas eleitorais</h3>
+    <table class="tabela"><thead><tr>
+      <th>Zona</th><th class="num">Seções</th><th class="num">Votos válidos</th><th>Líder</th><th class="num">Votos líder</th><th></th>
+    </tr></thead><tbody>
+    ${zonas.map((z) => {
+      const lider = z.cands && z.cands[0];
+      const temSecoes = (secoes[z.zona] || []).length > 0;
+      return `<tr class="clicavel" onclick="location.hash='#/municipio/${uf}/${codigo}/zona/${z.zona}?cargo=${atual}'">
+        <td>${esc(z.zona)}</td>
+        <td class="num">${fmt(z.tot.st)}/${fmt(z.tot.ts)}</td>
+        <td class="num">${fmt(z.votos.validos)}</td>
+        <td>${lider ? esc(lider.nome) + " (" + esc(lider.p) + ")" : "—"}</td>
+        <td class="num">${lider ? fmt(lider.v) : "—"}</td>
+        <td>${temSecoes ? "ver seções →" : ""}</td></tr>`;
+    }).join("")}
+    </tbody></table>` : "";
+
+  return `<h2>${esc(m.nome)} — ${esc(uf.toUpperCase())}</h2>
+    ${tabsCargos(cargos, atual, "#/municipio/" + uf + "/" + codigo)}
+    ${painelResultado(info.total, DADOS.cargos[atual] + " — " + m.nome + " (somatório)", { origem: "municipio", uf: uf, codigo: codigo, cargo: atual })}
+    ${tabelaZonas}`;
+}
+
+function viewZona(uf, codigo, zona, params) {
+  const m = acharMunicipio(uf, codigo);
+  if (!m) return vazio("Município sem dados neste snapshot.");
+  const cargos = m.cargos || {};
+  const chaves = Object.keys(cargos);
+  let atual = params.get("cargo");
+  if (!atual || !cargos[atual]) atual = chaves.includes("3") ? "3" : chaves[0];
+  const infoZona = (cargos[atual].zonas || []).find((z) => z.zona === zona);
+  const secoes = (m.secoes_por_zona || {})[zona] || [];
+
+  if (!secoes.length) {
+    return `<h2>Zona ${esc(zona)} — ${esc(m.nome)}/${esc(uf.toUpperCase())}</h2>
+      ${tabsCargos(cargos, atual, "#/municipio/" + uf + "/" + codigo + "/zona/" + zona)}
+      ${infoZona ? painelResultado(infoZona, DADOS.cargos[atual] + " — zona " + zona, { origem: "municipio", uf: uf, codigo: codigo, cargo: atual, zona: true }) : ""}
+      ${vazio("Ainda não há boletins de urna (BU) para as seções desta zona neste snapshot. Use o botão Atualizar online no topo ou regenere o arquivo para buscar os votos por seção.")}`;
+  }
+
+  const top = ((infoZona && infoZona.cands) || []).slice(0, 8);
+  const numeros = top.map((c) => c.n);
+  const linhas = secoes.map((s) => {
+    const info = s.cargos[atual] || {};
+    const votos = info.votos || {};
+    return `<tr class="clicavel" onclick="location.hash='#/municipio/${uf}/${codigo}/zona/${zona}/secao/${s.sec}?cargo=${atual}'">
+      <td>${esc(s.sec)}</td>
+      <td class="num">${fmt(info.aptos)}</td>
+      <td class="num">${fmt(info.comp)}</td>
+      ${numeros.map((n) => `<td class="num">${fmt(votos[String(n)] || 0)}</td>`).join("")}
+      <td class="num">${fmt(info.b)}</td>
+      <td class="num">${fmt(info.nu)}</td></tr>`;
+  }).join("");
+
+  return `<h2>Zona ${esc(zona)} — ${esc(m.nome)}/${esc(uf.toUpperCase())}</h2>
+    ${tabsCargos(cargos, atual, "#/municipio/" + uf + "/" + codigo + "/zona/" + zona)}
+    ${infoZona ? painelResultado(infoZona, DADOS.cargos[atual] + " — zona " + zona, { origem: "municipio", uf: uf, codigo: codigo, cargo: atual, zona: true }) : ""}
+    <h3>Votos por seção (${secoes.length} urnas com BU)</h3>
+    <div style="overflow:auto">
+    <table class="tabela"><thead><tr>
+      <th>Seção</th><th class="num">Aptos</th><th class="num">Comp.</th>
+      ${top.map((c) => `<th class="num" title="${esc(c.nome)}">${esc(c.nome.split(" ")[0])}</th>`).join("")}
+      <th class="num">Brancos</th><th class="num">Nulos</th>
+    </tr></thead><tbody>${linhas}</tbody></table>
+    </div>
+    <p class="dica">Clique em uma seção para ver os votos de todos os candidatos daquela urna.</p>`;
+}
+
+function viewSecao(uf, codigo, zona, secao, params) {
+  const m = acharMunicipio(uf, codigo);
+  if (!m) return vazio("Município sem dados neste snapshot.");
+  const cargos = m.cargos || {};
+  const chaves = Object.keys(cargos);
+  let atual = params.get("cargo");
+  if (!atual || !cargos[atual]) atual = chaves.includes("3") ? "3" : chaves[0];
+  const secoes = (m.secoes_por_zona || {})[zona] || [];
+  const s = secoes.find((x) => x.sec === secao);
+  if (!s) return vazio("Seção não encontrada neste snapshot.");
+  const info = s.cargos[atual];
+  if (!info) return vazio("Esta urna não tem votos para o cargo selecionado.");
+  const infoZona = (cargos[atual].zonas || []).find((z) => z.zona === zona);
+  const cands = (infoZona && infoZona.cands) || [];
+  const votos = info.votos || {};
+  const linhas = cands
+    .map((c) => ({ ...c, votos: votos[String(c.n)] || 0 }))
+    .filter((c) => c.votos > 0)
+    .sort((a, b) => b.votos - a.votos)
+    .map((c) => `<tr><td>${esc(c.nome)}</td><td>${esc(c.p)}</td><td class="num">${esc(c.n)}</td><td class="num">${fmt(c.votos)}</td></tr>`)
+    .join("");
+
+  return `<h2>Seção ${esc(secao)} — zona ${esc(zona)} — ${esc(m.nome)}/${esc(uf.toUpperCase())}</h2>
+    ${tabsCargos(cargos, atual, "#/municipio/" + uf + "/" + codigo + "/zona/" + zona + "/secao/" + secao)}
+    <div class="painel">
+      <div class="linha-info">Cargo: <strong>${esc(DADOS.cargos[atual])}</strong> • Aptos: <strong>${fmt(info.aptos)}</strong> •
+      Comparecimento: <strong>${fmt(info.comp)}</strong> • Brancos: ${fmt(info.b)} • Nulos: ${fmt(info.nu)} • Legenda: ${fmt(info.lg)}</div>
+    </div>
+    ${linhas ? `<table class="tabela"><thead><tr><th>Candidato</th><th>Partido</th><th class="num">Nº</th><th class="num">Votos</th></tr></thead><tbody>${linhas}</tbody></table>`
+      : vazio("Nenhum voto nominal para este cargo nesta urna.")}`;
+}
+
+function acharCandidato(origem, uf, cargo, numero, params) {
+  if (origem === "brasil") {
+    const c = ((DADOS.brasil || {}).cands || []).find((x) => x.n === numero);
+    return c ? { cand: c, titulo: "Presidente — Brasil", ctx: { origem: "brasil", cargo: "1" } } : null;
+  }
+  if (origem === "estado") {
+    const e = (DADOS.estados || []).find((x) => x.uf === uf);
+    const res = e && e.cargos && e.cargos[cargo];
+    const c = res && (res.cands || []).find((x) => x.n === numero);
+    return c ? { cand: c, titulo: DADOS.cargos[cargo] + " — " + e.nome, ctx: { origem: "estado", uf: uf, cargo: cargo } } : null;
+  }
+  const codigo = params.get("m");
+  const m = acharMunicipio(uf, codigo);
+  const res = m && m.cargos && m.cargos[cargo] && m.cargos[cargo].total;
+  const c = res && (res.cands || []).find((x) => x.n === numero);
+  return c ? { cand: c, titulo: DADOS.cargos[cargo] + " — " + m.nome, ctx: { origem: "municipio", uf: uf, codigo: codigo, cargo: cargo }, municipio: m } : null;
+}
+
+function viewCandidato(origem, uf, cargo, numero, params) {
+  const achado = acharCandidato(origem, uf, cargo, numero, params);
+  if (!achado) return vazio("Candidato não encontrado neste snapshot.");
+  const { cand, titulo, municipio } = achado;
+  const selo = cand.e ? '<span class="selo">ELEITO</span>' : "";
+  const eleicao = ELEICAO_DO_CARGO[String(cargo)] || 6259;
+  const ufLink = origem === "brasil" ? "br" : uf;
+  const linkOficial = `https://resultados.tse.jus.br/oficial/app/index.html#/eleicao/${eleicao}/uf/${ufLink}/cargo/${cargo}/vis/nominal/resultados`;
+
+  let extra = "";
+  if (municipio && municipio.cargos && municipio.cargos[cargo]) {
+    const zonas = (municipio.cargos[cargo].zonas || []).slice().sort((a, b) => a.zona.localeCompare(b.zona));
+    const linhasZona = zonas.map((z) => {
+      const c = (z.cands || []).find((x) => x.n === numero);
+      return `<tr><td>${esc(z.zona)}</td><td class="num">${c ? fmt(c.v) : "0"}</td><td class="num">${c ? pct(c.pct) : "—"}</td></tr>`;
+    }).join("");
+    if (linhasZona) {
+      extra += `<h3>Votos por zona</h3>
+      <table class="tabela"><thead><tr><th>Zona</th><th class="num">Votos</th><th class="num">%</th></tr></thead>
+      <tbody>${linhasZona}</tbody></table>`;
+    }
+    const secoes = municipio.secoes_por_zona || {};
+    const linhasSec = [];
+    Object.keys(secoes).sort().forEach((zona) => {
+      (secoes[zona] || []).forEach((s) => {
+        const info = s.cargos && s.cargos[cargo];
+        const votos = info && info.votos ? info.votos[String(numero)] || 0 : 0;
+        if (votos > 0) linhasSec.push({ zona: zona, sec: s.sec, v: votos, comp: info.comp, aptos: info.aptos });
+      });
+    });
+    linhasSec.sort((a, b) => b.v - a.v);
+    if (linhasSec.length) {
+      const top = linhasSec.slice(0, 20).map((l) => `<tr class="clicavel" onclick="location.hash='#/municipio/${uf}/${municipio.codigo}/zona/${l.zona}/secao/${l.sec}?cargo=${cargo}'">
+        <td>${esc(l.zona)}</td><td>${esc(l.sec)}</td><td class="num">${fmt(l.v)}</td><td class="num">${fmt(l.comp)}</td><td class="num">${fmt(l.aptos)}</td></tr>`).join("");
+      extra += `<h3>Seções onde foi mais votado (top ${Math.min(20, linhasSec.length)})</h3>
+      <table class="tabela"><thead><tr><th>Zona</th><th>Seção</th><th class="num">Votos</th><th class="num">Comp.</th><th class="num">Aptos</th></tr></thead>
+      <tbody>${top}</tbody></table>`;
+    }
+  }
+
+  return `<div class="painel">
+    <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
+      ${fotoHTML(cand)}
+      <div>
+        <h2 style="margin:0">${esc(cand.nome)}${selo}</h2>
+        <div class="linha-info">${esc(cand.p)} • Nº ${esc(cand.n)} • ${esc(titulo)}</div>
+        <div style="font-size:20px;font-weight:800;margin-top:8px">${fmt(cand.v)} votos
+          <small style="color:var(--suave);font-weight:400">${pct(cand.pct)}</small></div>
+      </div>
+    </div>
+  </div>
+  <p class="dica"><a href="${linkOficial}" target="_blank" rel="noopener">Abrir no site oficial do TSE (requer internet) ↗</a></p>
+  ${extra}`;
+}
+
+/* ---------- Trilha e roteamento ---------- */
+
+function montarTrilha(itens) {
+  const partes = [`<button class="voltar" onclick="history.back()">← Voltar</button>`];
+  itens.forEach((item, i) => {
+    if (i > 0) partes.push(`<span class="separador">›</span>`);
+    if (item.rota && i < itens.length - 1) {
+      partes.push(`<a href="${item.rota}">${esc(item.nome)}</a>`);
+    } else {
+      partes.push(`<span class="atual">${esc(item.nome)}</span>`);
+    }
+  });
+  partes.push(`<button class="limpar" onclick="limpar()">Limpar pesquisa</button>`);
+  $("#trilha").innerHTML = partes.join("");
+}
+
+function limpar() {
+  const campo = $("#campo-busca");
+  if (campo) campo.value = "";
+  const lista = $("#lista-busca");
+  if (lista) lista.style.display = "none";
+  location.hash = "#/";
+}
+
+function render() {
+  const { partes, params } = parseHash();
+  let html = "";
+  let trilha = [{ nome: "Início", rota: "#/" }];
+
+  if (partes.length === 0) {
+    html = viewHome();
+  } else if (partes[0] === "brasil") {
+    html = viewBrasil();
+    trilha.push({ nome: "Nacional" });
+  } else if (partes[0] === "estados") {
+    html = viewEstados();
+    trilha.push({ nome: "Estadual" });
+  } else if (partes[0] === "estado" && partes[1]) {
+    html = viewEstado(partes[1], params);
+    trilha.push({ nome: "Estadual", rota: "#/estados" });
+    trilha.push({ nome: partes[1].toUpperCase() });
+  } else if (partes[0] === "municipios") {
+    html = viewMunicipios();
+    trilha.push({ nome: "Municipal" });
+  } else if (partes[0] === "municipio" && partes[1] && partes[2]) {
+    const uf = partes[1], codigo = partes[2];
+    const m = acharMunicipio(uf, codigo);
+    const nomeMun = m ? m.nome : codigo;
+    trilha.push({ nome: "Municipal", rota: "#/municipios" });
+    if (partes[3] === "zona" && partes[4]) {
+      const zona = partes[4];
+      trilha.push({ nome: nomeMun, rota: `#/municipio/${uf}/${codigo}` });
+      if (partes[5] === "secao" && partes[6]) {
+        trilha.push({ nome: "Zona " + zona, rota: `#/municipio/${uf}/${codigo}/zona/${zona}` });
+        trilha.push({ nome: "Seção " + partes[6] });
+        html = viewSecao(uf, codigo, zona, partes[6], params);
+      } else {
+        trilha.push({ nome: "Zona " + zona });
+        html = viewZona(uf, codigo, zona, params);
+      }
+    } else {
+      trilha.push({ nome: nomeMun });
+      html = viewMunicipio(uf, codigo, params);
+    }
+  } else if (partes[0] === "candidato" && partes[1] && partes[3] && partes[4]) {
+    const origem = partes[1], uf = partes[2], cargo = partes[3], numero = partes[4];
+    const achado = acharCandidato(origem, uf, cargo, numero, params);
+    if (origem === "brasil") {
+      trilha.push({ nome: "Nacional", rota: "#/brasil" });
+    } else if (origem === "estado") {
+      trilha.push({ nome: "Estadual", rota: "#/estados" });
+      trilha.push({ nome: uf.toUpperCase(), rota: `#/estado/${uf}` });
+    } else {
+      const m = acharMunicipio(uf, params.get("m"));
+      trilha.push({ nome: "Municipal", rota: "#/municipios" });
+      if (m) trilha.push({ nome: m.nome, rota: `#/municipio/${uf}/${m.codigo}` });
+    }
+    trilha.push({ nome: achado ? achado.cand.nome : "Candidato" });
+    html = viewCandidato(origem, uf, cargo, numero, params);
+  } else {
+    html = vazio("Página não encontrada.");
+  }
+
+  montarTrilha(trilha);
+  $("#app").innerHTML = html;
+  ligarBusca();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- Busca de municípios ---------- */
+
+function normalizar(s) {
+  return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function ligarBusca() {
+  const campo = $("#campo-busca");
+  const lista = $("#lista-busca");
+  if (!campo || !lista) return;
+
+  campo.addEventListener("input", () => {
+    const termo = normalizar(campo.value.trim());
+    if (termo.length < 2) { lista.style.display = "none"; return; }
+    const achados = (DADOS.catalogo || []).filter(([uf, cod, nome]) => normalizar(nome).includes(termo)).slice(0, 30);
+    if (!achados.length) {
+      lista.innerHTML = `<div>Nenhum município encontrado</div>`;
+      lista.style.display = "block";
+      return;
+    }
+    lista.innerHTML = achados.map(([uf, cod, nome]) => {
+      const tem = acharMunicipio(uf, cod);
+      return `<div onclick="abrirMunicipio('${uf}','${cod}',${tem ? "true" : "false"})">
+        ${esc(nome)}<span class="uf">${esc(uf.toUpperCase())}</span>
+        ${tem ? "" : '<span class="aviso-sem">sem dados neste snapshot</span>'}
+      </div>`;
+    }).join("");
+    lista.style.display = "block";
+  });
+}
+
+document.addEventListener("click", (ev) => {
+  const lista = $("#lista-busca");
+  if (lista && !ev.target.closest(".busca")) lista.style.display = "none";
+});
+
+function abrirMunicipio(uf, codigo, temDados) {
+  if (!temDados) {
+    alert("Este município não está incluído neste snapshot.\n\nGere novamente com:\neleitor html --municipio Nome/" + uf.toUpperCase());
+    return;
+  }
+  location.hash = `#/municipio/${uf}/${codigo}`;
+}
+
+/* ---------- Atualização online (opcional, precisa de internet) ---------- */
+
+const BASE_TSE = "https://resultados.tse.jus.br/oficial/ele2026";
+const ELEICAO_POR_CARGO = { "1": 6257, "3": 6259, "5": 6259, "6": 6259, "7": 6259, "8": 6259, "25": 6261 };
+
+function urlResultado(eleicao, cargo, uf, municipio, zona) {
+  const c = String(cargo).padStart(4, "0");
+  const e = String(eleicao).padStart(6, "0");
+  let abr, prefixo;
+  if (!uf) { abr = "br"; prefixo = "br"; }
+  else {
+    abr = uf.toLowerCase();
+    if (!municipio) prefixo = abr;
+    else if (!zona) prefixo = abr + String(municipio).padStart(5, "0");
+    else prefixo = abr + String(municipio).padStart(5, "0") + "-z" + String(zona).padStart(4, "0");
+  }
+  return `${BASE_TSE}/${eleicao}/dados/${abr}/${prefixo}-c${c}-e${e}-u.json`;
+}
+
+function parseResultadoJS(data) {
+  const cargoData = (data.carg || [])[0] || {};
+  const candidatos = [];
+  for (const agr of cargoData.agr || []) {
+    for (const par of agr.par || []) {
+      const sigla = par.sg || agr.com || "";
+      for (const cand of par.cand || []) {
+        candidatos.push({
+          n: String(cand.n || ""),
+          nome: cand.nmu || cand.nm || "",
+          p: sigla,
+          v: parseInt(cand.vap || "0", 10) || 0,
+          pct: parseFloat(String(cand.pvap || "0").replace(",", ".")) || 0,
+          e: cand.e === "s",
+        });
+      }
+    }
+  }
+  candidatos.sort((a, b) => b.v - a.v);
+  const s = data.s || {}, v = data.v || {};
+  return {
+    cargo: parseInt(cargoData.cd || "0", 10),
+    cargo_nome: cargoData.nmn || "",
+    tot: {
+      st: parseInt(s.st || "0", 10),
+      ts: parseInt(s.ts || "0", 10),
+      pct: parseFloat(String(s.pst || "0").replace(",", ".")) || 0,
+      gerado: ((data.dg || "") + " " + (data.hg || "")).trim(),
+    },
+    votos: {
+      validos: parseInt(v.vv || "0", 10),
+      brancos: parseInt(v.vb || "0", 10),
+      nulos: parseInt(v.vn || "0", 10),
+      anulados: parseInt(v.van || "0", 10),
+    },
+    cands: candidatos,
+  };
+}
+
+function mapaFotos(res) {
+  const m = {};
+  (res.cands || []).forEach((c) => { if (c.foto) m[c.n] = c.foto; });
+  return m;
+}
+
+function aplicarFotos(res, fotos) {
+  (res.cands || []).forEach((c) => { if (!c.foto && fotos[c.n]) c.foto = fotos[c.n]; });
+}
+
+async function fetchJson(url) {
+  const resp = await fetch(url, { cache: "no-store" });
+  if (!resp.ok) throw new Error("HTTP " + resp.status);
+  return resp.json();
+}
+
+let atualizando = false;
+
+async function atualizarOnline() {
+  if (atualizando) return;
+  atualizando = true;
+  const btn = $("#btn-atualizar");
+  btn.disabled = true;
+  btn.textContent = "Atualizando...";
+  let erros = 0;
+  const tarefas = [];
+
+  try {
+    if (DADOS.brasil) {
+      const fotos = mapaFotos(DADOS.brasil);
+      tarefas.push(fetchJson(urlResultado(6257, 1)).then((j) => {
+        const novo = parseResultadoJS(j);
+        aplicarFotos(novo, fotos);
+        DADOS.brasil = novo;
+      }).catch(() => { erros += 1; }));
+    }
+    for (const est of DADOS.estados || []) {
+      for (const cg of Object.keys(est.cargos || {})) {
+        const eleicao = ELEICAO_POR_CARGO[cg] || 6259;
+        const fotos = mapaFotos(est.cargos[cg]);
+        tarefas.push(fetchJson(urlResultado(eleicao, cg, est.uf)).then((j) => {
+          const novo = parseResultadoJS(j);
+          aplicarFotos(novo, fotos);
+          est.cargos[cg] = novo;
+        }).catch(() => { erros += 1; }));
+      }
+    }
+    for (const m of DADOS.municipios || []) {
+      for (const cg of Object.keys(m.cargos || {})) {
+        const info = m.cargos[cg];
+        const eleicao = ELEICAO_POR_CARGO[cg] || 6259;
+        const fotosTotal = mapaFotos(info.total);
+        tarefas.push(fetchJson(urlResultado(eleicao, cg, m.uf, m.codigo)).then((j) => {
+          const novo = parseResultadoJS(j);
+          aplicarFotos(novo, fotosTotal);
+          info.total = novo;
+        }).catch(() => { erros += 1; }));
+        for (const z of info.zonas || []) {
+          const fotosZona = mapaFotos(z);
+          tarefas.push(fetchJson(urlResultado(eleicao, cg, m.uf, m.codigo, z.zona)).then((j) => {
+            const novo = parseResultadoJS(j);
+            aplicarFotos(novo, fotosZona);
+            Object.assign(z, novo);
+          }).catch(() => { erros += 1; }));
+        }
+      }
+    }
+
+    await Promise.all(tarefas);
+    DADOS.gerado_em = new Date().toLocaleString("pt-BR");
+    render();
+    atualizarMeta();
+    if (erros) {
+      mostrarToast("Atualizado com " + erros + " falha(s) de rede. Seções/urnas continuam do snapshot.", true);
+    } else {
+      mostrarToast("Dados atualizados do TSE em " + DADOS.gerado_em + ". Seções/urnas: regenere o arquivo para atualizar.");
+    }
+  } catch (e) {
+    mostrarToast("Não foi possível atualizar (sem internet?). O snapshot continua disponível.", true);
+  } finally {
+    atualizando = false;
+    btn.disabled = false;
+    btn.textContent = "↻ Atualizar online";
+  }
+}
+
+let toastTimer = null;
+
+function mostrarToast(msg, erro) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.className = "toast" + (erro ? " erro" : "");
+  el.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = "none"; }, 7000);
+}
+
+function atualizarMeta() {
+  $("#meta").textContent = "Snapshot gerado em " + (DADOS.gerado_em || "—") + " • eleições 2026 (1º turno)";
+}
+
+/* ---------- Início ---------- */
+
+atualizarMeta();
+window.addEventListener("hashchange", render);
+render();
+</script>
+</body>
+</html>
