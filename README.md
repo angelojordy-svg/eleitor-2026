@@ -60,7 +60,11 @@ seção e página de candidato. Flags: `--sem-fotos`, `--sem-secoes`.
 O artefato tem o botão **"Atualizar online"** no topo: com internet, busca os
 resultados mais recentes direto do TSE (Brasil, estados, municípios e zonas) sem
 precisar regerar o arquivo. Os votos por seção/urna vêm do snapshot — para
-atualizá-los, rode o comando `html` novamente.
+atualizá-los, rode o comando `html` novamente (ou dê duplo clique em
+`atualizar-html.bat`, que regenera `resultado-2026.html` com os dados atuais).
+
+Importante: **F5 não atualiza** (o arquivo contém os dados embutidos). Use o botão
+"Atualizar online" ou o `atualizar-html.bat`.
 
 O cache local fica em `%LOCALAPPDATA%\eleitor\cache` (pode ser alterado com `ELEITOR_CACHE_DIR`).
 O cliente respeita o limite de 100 req/s do TSE com intervalo mínimo entre requisições e usa ETag/304.
