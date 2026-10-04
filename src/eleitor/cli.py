@@ -689,6 +689,7 @@ def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
         )
     html = render_html(dados)
     destino = Path(args.out)
+    destino.parent.mkdir(parents=True, exist_ok=True)
     destino.write_text(html, encoding="utf-8")
     tamanho_mb = destino.stat().st_size / (1024 * 1024)
     console.print(f"[green]Artefato gerado:[/green] {destino} ({tamanho_mb:.1f} MB)")
