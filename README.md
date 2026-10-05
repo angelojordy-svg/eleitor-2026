@@ -6,6 +6,15 @@ CLI em Python para acompanhar, em tempo real, os resultados das Eleições 2026 
 - lista de seções/urnas de um município com status da apuração;
 - menu interativo no terminal (rich) e subcomandos.
 
+## Site publicado
+
+Versão web (celular e desktop): **https://angelojordy-svg.github.io/eleitor-2026/**
+
+Publicado via GitHub Pages a partir da branch `gh-pages`. Para atualizar o site com
+dados novos (inclusive votos por seção), dê duplo clique em **`publicar.bat`**.
+No próprio site, o botão **"Atualizar online"** atualiza os totais na hora (Brasil,
+estados, municípios e zonas) sem republicar.
+
 Fontes oficiais (JSON públicos):
 
 - Resultados (EA20): `https://resultados.tse.jus.br/oficial/ele2026/{eleicao}/dados/{abr}/...-u.json`
