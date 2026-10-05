@@ -141,6 +141,7 @@ def parse_resultado(data: dict[str, Any]) -> ResultadoCargo:
         candidatos=candidatos,
         votos=votos,
         totalizacao=totalizacao,
+        vagas=_to_int(cargo_data.get("nv")),
     )
 
 

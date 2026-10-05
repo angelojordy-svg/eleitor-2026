@@ -299,6 +299,7 @@
   .card-uf .lider { font-size: 13px; font-weight: 600; }
   .card-uf .pct { font-size: 12px; color: var(--suave); }
   .vazio { color: var(--suave); font-size: 14px; padding: 12px 0; }
+  .linha-eleito { background: #eafaf0; }
   .hemi-wrap { display: flex; justify-content: center; padding: 12px 0 4px; overflow-x: auto; }
   .hemi { max-width: 100%; height: auto; }
   .legenda { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 14px 0; }
@@ -433,6 +434,37 @@ function painelResultado(res, titulo, ctx) {
   </div>
   ${barraFiltro(idCards, partidos)}
   <div class="cards-cand" id="${idCards}">${(res.cands || []).map((c, i) => cardCandidato(c, ctx, i + 1)).join("")}</div>`;
+}
+
+function painelProporcional(res, titulo) {
+  const ranking = res.ranking || [];
+  const partidos = ordenarPartidos(res.partidos);
+  const vagas = res.vagas || 0;
+  const eleitos = (res.eleitos || []).length;
+  const t = res.tot || {};
+  const v = res.votos || {};
+  const linhas = ranking.map((c, i) => `<tr class="${c.e ? "linha-eleito" : ""}">
+    <td>${i + 1}º</td>
+    <td>${esc(c.nome)}</td>
+    <td>${esc(c.p)}</td>
+    <td class="num">${esc(c.n)}</td>
+    <td class="num">${fmt(c.v)}</td>
+    <td class="num">${pct(c.pct)}</td>
+    <td>${c.e ? '<span class="selo">ELEITO</span>' : ""}</td></tr>`).join("");
+  return `<div class="painel">
+    <h2>${esc(titulo)}</h2>
+    <div class="progresso"><span style="width:${Math.min(100, t.pct || 0)}%"></span></div>
+    <div class="linha-info">Vagas: <strong>${vagas}</strong> • Eleitos: <strong>${eleitos}</strong> • Seções totalizadas: ${fmt(t.st)}/${fmt(t.ts)} (${pct(t.pct)}) • gerado em ${esc(t.gerado || "—")}</div>
+    <div class="linha-info">Votos válidos: <strong>${fmt(v.validos)}</strong> • Brancos: ${fmt(v.brancos)} • Nulos: ${fmt(v.nulos)}</div>
+  </div>
+  <h3>Cadeiras por partido</h3>
+  ${renderHemiciclo(partidos)}
+  ${legendaCongresso(partidos, false)}
+  ${tabelaCongresso(partidos)}
+  <h3>Mais votados e eleitos</h3>
+  <div style="overflow:auto"><table class="tabela"><thead><tr>
+    <th>#</th><th>Candidato</th><th>Partido</th><th class="num">Nº</th><th class="num">Votos</th><th class="num">%</th><th></th>
+  </tr></thead><tbody>${linhas}</tbody></table></div>`;
 }
 
 function tabsCargos(cargos, atual, rotaBase) {
@@ -577,8 +609,9 @@ function viewCongresso(casa, ufSel) {
     const partidos = novos.concat(antigos.map((p) => ({ sg: p.sg, n: p.n, tipo: "antigo" })));
     const totalNovos = novos.reduce((a, p) => a + p.n, 0);
     const totalAntigos = antigos.reduce((a, p) => a + p.n, 0);
+    const vagasNovos = (c.senado_novos || {}).vagas || 54;
     return `<h2>Congresso — Senado (81 cadeiras)</h2>${tabHtml}
-      <p class="dica">54 cadeiras em disputa em 2026 (destacadas) + 27 eleitas em 2022 (tracejadas). Novos: <strong>${totalNovos}/54</strong> (parcial) • Antigos: <strong>${totalAntigos}</strong>.</p>
+      <p class="dica">54 cadeiras em disputa em 2026 (destacadas) + 27 eleitas em 2022 (tracejadas). Novos: <strong>${totalNovos}/${vagasNovos}</strong> (parcial) • Antigos: <strong>${totalAntigos}</strong>.</p>
       ${renderHemiciclo(partidos)}
       ${legendaCongresso(partidos, true)}
       <h3>Novos (2026)</h3>${tabelaCongresso(novos)}
@@ -606,7 +639,7 @@ function viewCongresso(casa, ufSel) {
     </select><span class="contagem">Filtre por estado</span></div>`;
   }
 
-  const alvo = casa === "camara" ? "513" : "";
+  const alvo = dados.vagas || 0;
   const notaTotal = alvo ? `${total} de ${alvo} cadeiras (parcial — preenche conforme os estados finalizam)` : `${total} cadeiras atribuídas neste snapshot (parcial)`;
   return `<h2>Congresso — ${esc(titulo)}</h2>${tabHtml}${seletor}
     <p class="dica">${esc(escopo)} • <strong>${notaTotal}</strong>. Use "Atualizar online" para recalcular.</p>
@@ -709,10 +742,14 @@ function viewEstado(uf, params) {
   const chaves = Object.keys(cargos);
   if (!chaves.length) return vazio("Sem dados para este estado.");
   let atual = params.get("cargo");
-  if (!atual || !cargos[atual]) atual = chaves[0];
+  if (!atual || !cargos[atual]) atual = chaves.includes("3") ? "3" : chaves[0];
+  const obj = cargos[atual];
+  const proporcional = ["6", "7", "8"].includes(atual);
   return `<h2>${esc(estado.nome)} (${esc(uf.toUpperCase())})</h2>
     ${tabsCargos(cargos, atual, "#/estado/" + uf)}
-    ${painelResultado(cargos[atual], DADOS.cargos[atual] + " — " + estado.nome, { origem: "estado", uf: uf, cargo: atual })}`;
+    ${proporcional
+      ? painelProporcional(obj, DADOS.cargos[atual] + " — " + estado.nome)
+      : painelResultado(obj, DADOS.cargos[atual] + " — " + estado.nome, { origem: "estado", uf: uf, cargo: atual })}`;
 }
 
 function viewMunicipios() {

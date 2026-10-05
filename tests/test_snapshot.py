@@ -113,15 +113,28 @@ def test_render_html_embute_dados_e_navegacao():
             {
                 "uf": "pa",
                 "nome": "Pará",
-                "cargos": {"3": _res_dict(_resultado_exemplo())},
+                "cargos": {
+                    "3": _res_dict(_resultado_exemplo()),
+                    "6": {
+                        "cargo_nome": "Deputado Federal",
+                        "vagas": 17,
+                        "tot": {"st": 40, "ts": 100, "pct": 40.0, "gerado": "04/10/2026 17:30:00"},
+                        "votos": {"validos": 2200, "brancos": 60, "nulos": 40, "anulados": 0},
+                        "partidos": {"PT": 1},
+                        "eleitos": [{"n": "13", "nome": "FULANO", "p": "PT", "v": 1200, "pct": 54.55}],
+                        "ranking": [{"n": "13", "nome": "FULANO", "p": "PT", "v": 1200, "pct": 54.55, "e": True}],
+                    },
+                },
             }
         ],
         "congresso": {
-            "camara": {"total": 1, "partidos": {"PT": 1}},
-            "senado_novos": {"total": 1, "partidos": {"PL": 1}},
-            "senado_antigos": {"total": 1, "partidos": {"MDB": 1}},
-            "estaduais": {"total": 1, "partidos": {"PSD": 1}},
-            "distrital": {"total": 1, "partidos": {"PP": 1}},
+            "camara": {"total": 1, "vagas": 513, "partidos": {"PT": 1}},
+            "camara_por_uf": {"pa": {"total": 1, "vagas": 17, "partidos": {"PT": 1}}},
+            "senado_novos": {"total": 1, "vagas": 54, "partidos": {"PL": 1}},
+            "senado_antigos": {"total": 1, "vagas": 27, "partidos": {"MDB": 1}},
+            "estaduais": {"total": 1, "vagas": 1035, "partidos": {"PSD": 1}},
+            "estaduais_por_uf": {"pa": {"total": 1, "vagas": 41, "partidos": {"PSD": 1}}},
+            "distrital": {"total": 1, "vagas": 24, "partidos": {"PP": 1}},
         },
         "municipios": [
             {
@@ -154,6 +167,7 @@ def test_render_html_embute_dados_e_navegacao():
     assert "Todos os partidos" in html
     assert "renderHemiciclo" in html
     assert "viewCongresso" in html
+    assert "painelProporcional" in html
     assert "carregarMunicipio" in html
     assert "catalogoInfo" in html
     payload = html.split("const DADOS = ", 1)[1].split(";\n", 1)[0]

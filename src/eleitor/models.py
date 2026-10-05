@@ -44,6 +44,7 @@ class ResultadoCargo:
     candidatos: list[Candidato]
     votos: TotaisVotos
     totalizacao: Totalizacao
+    vagas: int = 0
 
 
 @dataclass
