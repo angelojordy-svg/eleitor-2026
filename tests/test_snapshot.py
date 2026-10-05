@@ -141,6 +141,10 @@ def test_render_html_embute_dados_e_navegacao():
     assert "ELEICAO_DO_CARGO" in html
     assert "Atualizar online" in html
     assert "atualizarOnline" in html
+    assert "Filtrar por nome" in html
+    assert "filtrarCartoes" in html
+    assert "filtrarColunas" in html
+    assert "Todos os partidos" in html
     payload = html.split("const DADOS = ", 1)[1].split(";\n", 1)[0]
     decodificado = json.loads(payload)
     assert decodificado["gerado_em"] == "04/10/2026 18:00"

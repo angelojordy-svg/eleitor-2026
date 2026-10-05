@@ -177,6 +177,24 @@
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 14px;
   }
+  .filtros {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0 0 14px;
+  }
+  .filtros input, .filtros select {
+    font: inherit;
+    font-size: 14px;
+    padding: 8px 12px;
+    border: 1px solid #c7d4e2;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--texto);
+  }
+  .filtros input { flex: 1; min-width: 180px; }
+  .filtros .contagem { font-size: 12px; color: var(--suave); }
   .cand {
     background: var(--card);
     border: 1px solid #dde5ee;
@@ -332,7 +350,8 @@ function cardCandidato(c, ctx, posicao) {
   const rota = rotaCandidato(ctx, c.n);
   const classe = `cand ${c.e ? "eleito" : ""} ${rota ? "clicavel" : ""}`;
   const clique = rota ? ` onclick="location.hash='${rota}'"` : "";
-  return `<div class="${classe}"${clique}>
+  const attrs = ` data-nome="${esc(normalizar(c.nome))}" data-partido="${esc(c.p)}" data-numero="${esc(c.n)}"`;
+  return `<div class="${classe}"${clique}${attrs}>
     ${rank}
     ${fotoHTML(c)}
     <div class="info">
@@ -344,10 +363,44 @@ function cardCandidato(c, ctx, posicao) {
   </div>`;
 }
 
+function barraFiltro(id, partidos) {
+  return `<div class="filtros" data-alvo="${id}">
+    <input type="search" placeholder="Filtrar por nome ou número..." oninput="filtrarCartoes('${id}')">
+    <select onchange="filtrarCartoes('${id}')">
+      <option value="">Todos os partidos</option>
+      ${partidos.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}
+    </select>
+    <span class="contagem" id="${id}-cont"></span>
+  </div>`;
+}
+
+function filtrarCartoes(id) {
+  const container = document.getElementById(id);
+  if (!container) return;
+  const barra = container.previousElementSibling;
+  const texto = normalizar(barra.querySelector("input").value.trim());
+  const partido = barra.querySelector("select").value;
+  let visiveis = 0;
+  container.querySelectorAll(".cand").forEach((el) => {
+    const nome = el.dataset.nome || "";
+    const numero = el.dataset.numero || "";
+    const p = el.dataset.partido || "";
+    const bateTexto = !texto || nome.includes(texto) || numero === texto;
+    const batePartido = !partido || p === partido;
+    const ok = bateTexto && batePartido;
+    el.style.display = ok ? "" : "none";
+    if (ok) visiveis += 1;
+  });
+  const cont = document.getElementById(id + "-cont");
+  if (cont) cont.textContent = visiveis + " candidato(s)";
+}
+
 function painelResultado(res, titulo, ctx) {
   const t = res.tot || {};
   const v = res.votos || {};
   const eleitos = (res.cands || []).filter((c) => c.e);
+  const idCards = "cards-" + Math.random().toString(36).slice(2, 9);
+  const partidos = [...new Set((res.cands || []).map((c) => c.p).filter(Boolean))].sort();
   const notaLocal = ctx && ctx.origem === "brasil"
     ? "Ordenado pelos votos do Brasil"
     : ctx && ctx.origem === "estado"
@@ -371,7 +424,8 @@ function painelResultado(res, titulo, ctx) {
       Eleitos: ${eleitos.map((c) => esc(c.nome) + " (" + esc(c.p) + ")").join(", ")}
     </div>` : ""}
   </div>
-  <div class="cards-cand">${(res.cands || []).map((c, i) => cardCandidato(c, ctx, i + 1)).join("")}</div>`;
+  ${barraFiltro(idCards, partidos)}
+  <div class="cards-cand" id="${idCards}">${(res.cands || []).map((c, i) => cardCandidato(c, ctx, i + 1)).join("")}</div>`;
 }
 
 function tabsCargos(cargos, atual, rotaBase) {
@@ -527,8 +581,10 @@ function viewZona(uf, codigo, zona, params) {
       ${vazio("Ainda não há boletins de urna (BU) para as seções desta zona neste snapshot. Use o botão Atualizar online no topo ou regenere o arquivo para buscar os votos por seção.")}`;
   }
 
-  const top = ((infoZona && infoZona.cands) || []).slice(0, 8);
+  const top = ((infoZona && infoZona.cands) || []).slice(0, 12);
   const numeros = top.map((c) => c.n);
+  const partidosTop = [...new Set(top.map((c) => c.p).filter(Boolean))].sort();
+  const idTabela = "tab-" + Math.random().toString(36).slice(2, 9);
   const linhas = secoes.map((s) => {
     const info = s.cargos[atual] || {};
     const votos = info.votos || {};
@@ -536,7 +592,7 @@ function viewZona(uf, codigo, zona, params) {
       <td>${esc(s.sec)}</td>
       <td class="num">${fmt(info.aptos)}</td>
       <td class="num">${fmt(info.comp)}</td>
-      ${numeros.map((n) => `<td class="num">${fmt(votos[String(n)] || 0)}</td>`).join("")}
+      ${top.map((c) => `<td class="num" data-partido="${esc(c.p)}">${fmt(votos[String(c.n)] || 0)}</td>`).join("")}
       <td class="num">${fmt(info.b)}</td>
       <td class="num">${fmt(info.nu)}</td></tr>`;
   }).join("");
@@ -545,14 +601,31 @@ function viewZona(uf, codigo, zona, params) {
     ${tabsCargos(cargos, atual, "#/municipio/" + uf + "/" + codigo + "/zona/" + zona)}
     ${infoZona ? painelResultado(infoZona, DADOS.cargos[atual] + " — zona " + zona, { origem: "municipio", uf: uf, codigo: codigo, cargo: atual, zona: true }) : ""}
     <h3>Votos por seção (${secoes.length} urnas com BU)</h3>
-    <div style="overflow:auto">
+    <div class="filtros" data-alvo="${idTabela}">
+      <select onchange="filtrarColunas('${idTabela}')">
+        <option value="">Todos os partidos (colunas)</option>
+        ${partidosTop.map((p) => `<option value="${esc(p)}">${esc(p)}</option>`).join("")}
+      </select>
+      <span class="contagem">Filtra as colunas de candidatos por partido</span>
+    </div>
+    <div id="${idTabela}" style="overflow:auto">
     <table class="tabela"><thead><tr>
       <th>Seção</th><th class="num">Aptos</th><th class="num">Comp.</th>
-      ${top.map((c) => `<th class="num" title="${esc(c.nome)}">${esc(c.nome.split(" ")[0])}</th>`).join("")}
+      ${top.map((c) => `<th class="num" title="${esc(c.nome)} (${esc(c.p)})" data-partido="${esc(c.p)}">${esc(c.nome.split(" ")[0])}</th>`).join("")}
       <th class="num">Brancos</th><th class="num">Nulos</th>
     </tr></thead><tbody>${linhas}</tbody></table>
     </div>
     <p class="dica">Clique em uma seção para ver os votos de todos os candidatos daquela urna.</p>`;
+}
+
+function filtrarColunas(id) {
+  const wrap = document.getElementById(id);
+  if (!wrap) return;
+  const barra = wrap.previousElementSibling;
+  const partido = barra.querySelector("select").value;
+  wrap.querySelectorAll("[data-partido]").forEach((el) => {
+    el.style.display = (!partido || el.dataset.partido === partido) ? "" : "none";
+  });
 }
 
 function viewSecao(uf, codigo, zona, secao, params) {
