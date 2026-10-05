@@ -22,6 +22,24 @@ CARGOS_ESTADO = (3, 5)
 CARGOS_MUNICIPIO = (1, 3, 5, 6, 7)
 CARGOS_COM_FOTO = (1, 3, 5)
 
+CARGOS_CONGRESSO = [
+    ("camara", 6, None),
+    ("senado_novos", 5, None),
+    ("estaduais", 7, None),
+    ("distrital", 8, ["df"]),
+]
+
+SENADORES_2022 = {
+    "PL": 8,
+    "UNIÃO": 4,
+    "PSD": 3,
+    "MDB": 2,
+    "PT": 3,
+    "REPUBLICANOS": 4,
+    "PP": 2,
+    "PSB": 1,
+}
+
 
 def _cand_dict(cand: Candidato, foto: str | None = None) -> dict[str, Any]:
     item = {
@@ -210,6 +228,43 @@ def _coletar_municipio(
     }
 
 
+def _agregar_congresso(
+    client: CachedClient, cargo: int, ufs: list[str]
+) -> dict[str, Any]:
+    from eleitor.sources.resultados import parse_resultado, url_resultado
+
+    urls = [url_resultado(ELEICAO_ESTADUAL, cargo, uf=uf) for uf in ufs]
+    corpos = client.get_urls(urls, ttl=TTL_LIVE, allow_404=True)
+    partidos: dict[str, int] = {}
+    total = 0
+    for url in urls:
+        body = corpos.get(url)
+        if not body:
+            continue
+        res = parse_resultado(body)
+        for cand in res.candidatos:
+            if cand.eleito:
+                total += 1
+                partidos[cand.partido] = partidos.get(cand.partido, 0) + 1
+    return {"total": total, "partidos": partidos}
+
+
+def _coletar_congresso(
+    client: CachedClient, progresso: Callable[[str], None] | None = None
+) -> dict[str, Any]:
+    ufs = [u for u in UF_SIGLAS if u != "ZZ"]
+    casas: dict[str, Any] = {}
+    for nome, cargo, ufs_custom in CARGOS_CONGRESSO:
+        if progresso:
+            progresso(f"Congresso — {nome}...")
+        casas[nome] = _agregar_congresso(client, cargo, ufs_custom or ufs)
+    casas["senado_antigos"] = {
+        "total": sum(SENADORES_2022.values()),
+        "partidos": dict(SENADORES_2022),
+    }
+    return casas
+
+
 def coletar_snapshot(
     client: CachedClient,
     loc: Localidades,
@@ -228,6 +283,9 @@ def coletar_snapshot(
     aviso("Estados — Governador e Senador...")
     estados = _coletar_estados(client, com_fotos)
 
+    aviso("Congresso — Câmara, Senado e assembleias...")
+    congresso = _coletar_congresso(client, progresso)
+
     municipios_dados: list[dict[str, Any]] = []
     for municipio in municipios:
         aviso(f"{municipio.nome}/{municipio.uf.upper()} — resultados e zonas...")
@@ -236,7 +294,8 @@ def coletar_snapshot(
         )
 
     catalogo = [
-        [m.uf, m.codigo, m.nome] for m in sorted(loc.municipios, key=lambda x: (x.uf, x.nome))
+        [m.uf, m.codigo, m.nome, m.zonas]
+        for m in sorted(loc.municipios, key=lambda x: (x.uf, x.nome))
     ]
 
     return {
@@ -244,6 +303,7 @@ def coletar_snapshot(
         "cargos": {str(k): v for k, v in CARGO_NOMES.items()},
         "brasil": brasil,
         "estados": estados,
+        "congresso": congresso,
         "municipios": municipios_dados,
         "catalogo": catalogo,
     }

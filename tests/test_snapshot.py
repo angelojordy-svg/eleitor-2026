@@ -116,6 +116,13 @@ def test_render_html_embute_dados_e_navegacao():
                 "cargos": {"3": _res_dict(_resultado_exemplo())},
             }
         ],
+        "congresso": {
+            "camara": {"total": 1, "partidos": {"PT": 1}},
+            "senado_novos": {"total": 1, "partidos": {"PL": 1}},
+            "senado_antigos": {"total": 1, "partidos": {"MDB": 1}},
+            "estaduais": {"total": 1, "partidos": {"PSD": 1}},
+            "distrital": {"total": 1, "partidos": {"PP": 1}},
+        },
         "municipios": [
             {
                 "uf": "pa",
@@ -125,7 +132,7 @@ def test_render_html_embute_dados_e_navegacao():
                 "secoes_por_zona": {},
             }
         ],
-        "catalogo": [["pa", "04154", "ANANINDEUA"]],
+        "catalogo": [["pa", "04154", "ANANINDEUA", ["0072", "0107"]]],
     }
     html = render_html(dados)
     assert "/*__DADOS__*/" not in html
@@ -145,10 +152,16 @@ def test_render_html_embute_dados_e_navegacao():
     assert "filtrarCartoes" in html
     assert "filtrarColunas" in html
     assert "Todos os partidos" in html
+    assert "renderHemiciclo" in html
+    assert "viewCongresso" in html
+    assert "carregarMunicipio" in html
+    assert "catalogoInfo" in html
     payload = html.split("const DADOS = ", 1)[1].split(";\n", 1)[0]
     decodificado = json.loads(payload)
     assert decodificado["gerado_em"] == "04/10/2026 18:00"
     assert decodificado["catalogo"][0][2] == "ANANINDEUA"
+    assert decodificado["catalogo"][0][3] == ["0072", "0107"]
+    assert decodificado["congresso"]["camara"]["partidos"]["PT"] == 1
 
 
 def test_render_html_candidatos_ordenados_por_votos():

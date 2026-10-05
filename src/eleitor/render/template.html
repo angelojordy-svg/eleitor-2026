@@ -299,6 +299,13 @@
   .card-uf .lider { font-size: 13px; font-weight: 600; }
   .card-uf .pct { font-size: 12px; color: var(--suave); }
   .vazio { color: var(--suave); font-size: 14px; padding: 12px 0; }
+  .hemi-wrap { display: flex; justify-content: center; padding: 12px 0 4px; overflow-x: auto; }
+  .hemi { max-width: 100%; height: auto; }
+  .legenda { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 14px 0; }
+  .legenda .item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .legenda .sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+  .legenda .sw.dashed { background: none !important; }
+  .legenda .obs { color: var(--suave); font-size: 12px; }
   .fonte { max-width: 1180px; margin: 0 auto; padding: 0 22px 26px; color: var(--suave); font-size: 12px; }
   .dica { color: var(--suave); font-size: 13px; margin: 10px 0 0; }
   @media (max-width: 640px) {
@@ -448,6 +455,186 @@ function acharMunicipio(uf, codigo) {
 
 function vazio(msg) { return `<div class="vazio">${esc(msg)}</div>`; }
 
+/* ---------- Cores de partido e hemiciclo ---------- */
+
+const CORES = {
+  "PT": "#c4122b", "PL": "#1e3a8a", "UNIÃO": "#f59e0b", "PP": "#0ea5e9",
+  "MDB": "#16a34a", "PSD": "#2563eb", "REPUBLICANOS": "#0369a1",
+  "PSDB": "#0d9488", "PDT": "#e11d48", "PSB": "#d97706", "PODE": "#7c3aed",
+  "PODEMOS": "#7c3aed", "PSOL": "#a21caf", "NOVO": "#f97316",
+  "SOLIDARIEDADE": "#0891b2", "CIDADANIA": "#65a30d", "PC do B": "#b91c1c",
+  "PV": "#15803d", "REDE": "#059669", "AVANTE": "#ca8a04", "MOBILIZA": "#6d28d9",
+  "DEMOCRATA": "#475569", "PSTU": "#7f1d1d", "PCO": "#991b1b", "PCB": "#7f1d1d",
+  "UP": "#4c1d95", "DC": "#334155", "MISSÃO": "#0f766e", "PRTB": "#92400e",
+  "AGIR": "#1d4ed8", "PSDC": "#0891b2", "PMN": "#0e7490", "PTC": "#b45309",
+};
+
+function corPartido(sg) { return CORES[sg] || "#64748b"; }
+
+function layoutHemiciclo(total, rows) {
+  const rowGap = 11;
+  const radii = [];
+  for (let i = 0; i < rows; i++) radii.push(26 + i * rowGap);
+  const sumR = radii.reduce((a, b) => a + b, 0);
+  const counts = radii.map((r) => Math.max(1, Math.round((total * r) / sumR)));
+  let diff = total - counts.reduce((a, b) => a + b, 0);
+  let idx = counts.length - 1;
+  let guard = 0;
+  while (diff !== 0 && guard < 10000) {
+    if (diff > 0) { counts[idx]++; diff--; }
+    else if (counts[idx] > 1) { counts[idx]--; diff++; }
+    idx -= 1;
+    if (idx < 0) idx = counts.length - 1;
+    guard += 1;
+  }
+  const seats = [];
+  for (let i = 0; i < rows; i++) {
+    const n = counts[i];
+    const r = radii[i];
+    for (let j = 0; j < n; j++) {
+      const t = n === 1 ? 0.5 : j / (n - 1);
+      const ang = Math.PI - t * Math.PI;
+      seats.push({ x: r * Math.cos(ang), y: -r * Math.sin(ang), ang: ang });
+    }
+  }
+  return seats;
+}
+
+function renderHemiciclo(partidos) {
+  const total = partidos.reduce((a, p) => a + p.n, 0);
+  if (!total) return vazio("Sem cadeiras atribuídas ainda neste snapshot.");
+  const rows = total > 400 ? 14 : total > 120 ? 11 : total > 40 ? 9 : 7;
+  const seats = layoutHemiciclo(total, rows);
+  seats.sort((a, b) => a.ang - b.ang);
+  let k = 0;
+  for (const p of partidos) {
+    for (let i = 0; i < p.n; i++) {
+      seats[k].sg = p.sg;
+      seats[k].tipo = p.tipo || "normal";
+      k += 1;
+    }
+  }
+  const maxR = Math.max(...seats.map((s) => Math.hypot(s.x, s.y))) + 8;
+  const w = Math.round(maxR * 2);
+  const h = Math.round(maxR + 8);
+  let dots = "";
+  for (const s of seats) {
+    const cx = (maxR + s.x).toFixed(1);
+    const cy = (maxR + s.y).toFixed(1);
+    const cor = corPartido(s.sg);
+    if (s.tipo === "antigo") {
+      dots += `<circle cx="${cx}" cy="${cy}" r="4" fill="none" stroke="${cor}" stroke-width="2" stroke-dasharray="2 2"><title>${esc(s.sg)} (2022)</title></circle>`;
+    } else {
+      dots += `<circle cx="${cx}" cy="${cy}" r="4" fill="${cor}"><title>${esc(s.sg)}</title></circle>`;
+    }
+  }
+  return `<div class="hemi-wrap"><svg class="hemi" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img">${dots}</svg></div>`;
+}
+
+function legendaCongresso(partidos, temAntigos) {
+  const total = partidos.reduce((a, p) => a + p.n, 0);
+  const itens = partidos.map((p) => {
+    const pct = total ? ((p.n / total) * 100).toFixed(1).replace(".", ",") : "0";
+    const dashed = p.tipo === "antigo" ? " dashed" : "";
+    return `<span class="item"><span class="sw${dashed}" style="background:${corPartido(p.sg)};border-color:${corPartido(p.sg)}"></span>${esc(p.sg)}: <strong>${p.n}</strong> (${pct}%)</span>`;
+  }).join("");
+  const obs = temAntigos ? '<span class="obs">— círculos tracejados = eleitos em 2022 (não disputam 2026)</span>' : "";
+  return `<div class="legenda">${itens}${obs}</div>`;
+}
+
+function tabelaCongresso(partidos) {
+  const total = partidos.reduce((a, p) => a + p.n, 0);
+  const linhas = partidos.map((p) => {
+    const pct = total ? ((p.n / total) * 100).toFixed(2).replace(".", ",") : "0";
+    const nota = p.tipo === "antigo" ? ' <span class="obs">(2022)</span>' : "";
+    return `<tr><td><span class="sw" style="background:${corPartido(p.sg)};display:inline-block;margin-right:6px"></span>${esc(p.sg)}${nota}</td><td class="num">${p.n}</td><td class="num">${pct}%</td></tr>`;
+  }).join("");
+  return `<table class="tabela"><thead><tr><th>Partido</th><th class="num">Cadeiras</th><th class="num">%</th></tr></thead><tbody>${linhas}</tbody></table>`;
+}
+
+function ordenarPartidos(partidos) {
+  return Object.entries(partidos || {})
+    .map(([sg, n]) => ({ sg: sg, n: n }))
+    .filter((p) => p.n > 0)
+    .sort((a, b) => b.n - a.n);
+}
+
+function viewCongresso(casa) {
+  const c = DADOS.congresso || {};
+  const abas = [
+    ["camara", "Câmara (Dep. Federal)", 513],
+    ["senado", "Senado", 81],
+    ["estaduais", "Assembleias estaduais", null],
+    ["distrital", "Distrital (DF)", null],
+  ];
+  const tabHtml = `<div class="abas">${abas.map(([id, nome]) =>
+    `<button class="${casa === id ? "ativa" : ""}" onclick="location.hash='#/congresso?casa=${id}'">${esc(nome)}</button>`
+  ).join("")}</div>`;
+
+  if (casa === "senado") {
+    const novos = ordenarPartidos((c.senado_novos || {}).partidos);
+    const antigos = ordenarPartidos((c.senado_antigos || {}).partidos);
+    const partidos = novos.concat(antigos.map((p) => ({ sg: p.sg, n: p.n, tipo: "antigo" })));
+    const totalNovos = novos.reduce((a, p) => a + p.n, 0);
+    const totalAntigos = antigos.reduce((a, p) => a + p.n, 0);
+    return `<h2>Congresso — Senado (81 cadeiras)</h2>${tabHtml}
+      <p class="dica">54 cadeiras em disputa em 2026 (destacadas) + 27 eleitas em 2022 (tracejadas). Novos: <strong>${totalNovos}</strong> • Antigos: <strong>${totalAntigos}</strong>.</p>
+      ${renderHemiciclo(partidos)}
+      ${legendaCongresso(partidos, true)}
+      <h3>Novos (2026)</h3>${tabelaCongresso(novos)}
+      <h3>Antigos (2022)</h3>${tabelaCongresso(antigos.map((p) => ({ sg: p.sg, n: p.n, tipo: "antigo" })))}`;
+  }
+
+  const mapa = { camara: c.camara, estaduais: c.estaduais, distrital: c.distrital };
+  const dados = mapa[casa] || { total: 0, partidos: {} };
+  const partidos = ordenarPartidos(dados.partidos);
+  const titulo = casa === "camara" ? "Câmara dos Deputados (513)" : casa === "estaduais" ? "Assembleias estaduais (Brasil)" : "Câmara Distrital (DF)";
+  const total = partidos.reduce((a, p) => a + p.n, 0);
+  return `<h2>Congresso — ${esc(titulo)}</h2>${tabHtml}
+    <p class="dica">Cadeiras atribuídas neste snapshot: <strong>${total}</strong>. Atualiza conforme os estados finalizam (botão "Atualizar online").</p>
+    ${renderHemiciclo(partidos)}
+    ${legendaCongresso(partidos, false)}
+    ${tabelaCongresso(partidos)}`;
+}
+
+/* ---------- Município ao vivo ---------- */
+
+const MUN_CACHE = {};
+
+function catalogoInfo(uf, codigo) {
+  const item = (DADOS.catalogo || []).find(([u, cod]) => u === uf && cod === codigo);
+  if (!item) return null;
+  return { uf: item[0], codigo: item[1], nome: item[2], zonas: item[3] || [] };
+}
+
+async function carregarMunicipio(uf, codigo) {
+  const info = catalogoInfo(uf, codigo);
+  if (!info) return null;
+  const cargos = {};
+  for (const cg of ["1", "3", "5", "6", "7"]) {
+    const ele = ELEICAO_DO_CARGO[cg] || 6259;
+    try {
+      const total = parseResultadoJS(await fetchJson(urlResultado(ele, cg, uf, codigo)));
+      const zs = [];
+      for (const z of info.zonas) {
+        try {
+          const zr = parseResultadoJS(await fetchJson(urlResultado(ele, cg, uf, codigo, z)));
+          zs.push({ zona: z, ...zr });
+        } catch (e) {}
+      }
+      cargos[cg] = { cargo_nome: total.cargo_nome, total: total, zonas: zs };
+    } catch (e) {}
+  }
+  const mun = { uf: uf, codigo: codigo, nome: info.nome, cargos: cargos, secoes_por_zona: {}, aoVivo: true };
+  MUN_CACHE[uf + "/" + codigo] = mun;
+  return mun;
+}
+
+function municipioAtual(uf, codigo) {
+  return acharMunicipio(uf, codigo) || MUN_CACHE[uf + "/" + codigo] || null;
+}
+
+
 /* ---------- Views ---------- */
 
 function viewHome() {
@@ -464,6 +651,10 @@ function viewHome() {
     <div class="card-nivel" onclick="location.hash='#/municipios'">
       <div class="icone">🏙️</div><h3>Municipal</h3>
       <p>Busque o município e desça até zona e seção (urna), com votos por candidato.</p>
+    </div>
+    <div class="card-nivel" onclick="location.hash='#/congresso'">
+      <div class="icone">🏛️</div><h3>Congresso</h3>
+      <p>Câmara, Senado (novos x antigos), assembleias estaduais e distrital — por partido.</p>
     </div>
   </div>
   <div class="busca">
@@ -528,9 +719,12 @@ function viewMunicipios() {
 }
 
 function viewMunicipio(uf, codigo, params) {
-  const m = acharMunicipio(uf, codigo);
+  let m = municipioAtual(uf, codigo);
   if (!m) {
-    return vazio("Município sem dados neste snapshot. Regenere com: eleitor html --municipio Nome/UF");
+    const info = catalogoInfo(uf, codigo);
+    if (!info) return vazio("Município não encontrado.");
+    carregarMunicipio(uf, codigo).then(() => render()).catch(() => mostrarToast("Falha ao buscar o município no TSE.", true));
+    return `<h2>${esc(info.nome)} — ${esc(uf.toUpperCase())}</h2>${vazio("Buscando dados ao vivo no TSE... (pode levar alguns segundos)")}`;
   }
   const cargos = m.cargos || {};
   const chaves = Object.keys(cargos);
@@ -558,14 +752,19 @@ function viewMunicipio(uf, codigo, params) {
     }).join("")}
     </tbody></table>` : "";
 
+  const notaVivo = m.aoVivo
+    ? `<p class="dica">Dados buscados <strong>ao vivo</strong> no TSE agora. Votos por seção/urna estão disponíveis apenas para os municípios embutidos no arquivo.</p>`
+    : "";
+
   return `<h2>${esc(m.nome)} — ${esc(uf.toUpperCase())}</h2>
     ${tabsCargos(cargos, atual, "#/municipio/" + uf + "/" + codigo)}
+    ${notaVivo}
     ${painelResultado(info.total, DADOS.cargos[atual] + " — " + m.nome + " (somatório)", { origem: "municipio", uf: uf, codigo: codigo, cargo: atual })}
     ${tabelaZonas}`;
 }
 
 function viewZona(uf, codigo, zona, params) {
-  const m = acharMunicipio(uf, codigo);
+  const m = municipioAtual(uf, codigo);
   if (!m) return vazio("Município sem dados neste snapshot.");
   const cargos = m.cargos || {};
   const chaves = Object.keys(cargos);
@@ -629,7 +828,7 @@ function filtrarColunas(id) {
 }
 
 function viewSecao(uf, codigo, zona, secao, params) {
-  const m = acharMunicipio(uf, codigo);
+  const m = municipioAtual(uf, codigo);
   if (!m) return vazio("Município sem dados neste snapshot.");
   const cargos = m.cargos || {};
   const chaves = Object.keys(cargos);
@@ -672,7 +871,7 @@ function acharCandidato(origem, uf, cargo, numero, params) {
     return c ? { cand: c, titulo: DADOS.cargos[cargo] + " — " + e.nome, ctx: { origem: "estado", uf: uf, cargo: cargo } } : null;
   }
   const codigo = params.get("m");
-  const m = acharMunicipio(uf, codigo);
+  const m = municipioAtual(uf, codigo);
   const res = m && m.cargos && m.cargos[cargo] && m.cargos[cargo].total;
   const c = res && (res.cands || []).find((x) => x.n === numero);
   return c ? { cand: c, titulo: DADOS.cargos[cargo] + " — " + m.nome, ctx: { origem: "municipio", uf: uf, codigo: codigo, cargo: cargo }, municipio: m } : null;
@@ -777,12 +976,21 @@ function render() {
   } else if (partes[0] === "municipios") {
     html = viewMunicipios();
     trilha.push({ nome: "Municipal" });
+  } else if (partes[0] === "congresso") {
+    html = viewCongresso(params.get("casa") || "camara");
+    trilha.push({ nome: "Congresso" });
   } else if (partes[0] === "municipio" && partes[1] && partes[2]) {
     const uf = partes[1], codigo = partes[2];
-    const m = acharMunicipio(uf, codigo);
-    const nomeMun = m ? m.nome : codigo;
+    const infoCat = catalogoInfo(uf, codigo);
+    const m = municipioAtual(uf, codigo);
+    const nomeMun = m ? m.nome : (infoCat ? infoCat.nome : codigo);
     trilha.push({ nome: "Municipal", rota: "#/municipios" });
-    if (partes[3] === "zona" && partes[4]) {
+    const temZona = partes[3] === "zona" && partes[4];
+    if (!m && infoCat && temZona) {
+      carregarMunicipio(uf, codigo).then(() => render()).catch(() => {});
+      trilha.push({ nome: nomeMun });
+      html = `<h2>${esc(nomeMun)} — ${esc(uf.toUpperCase())}</h2>${vazio("Buscando dados ao vivo no TSE... (pode levar alguns segundos)")}`;
+    } else if (temZona) {
       const zona = partes[4];
       trilha.push({ nome: nomeMun, rota: `#/municipio/${uf}/${codigo}` });
       if (partes[5] === "secao" && partes[6]) {
@@ -806,7 +1014,7 @@ function render() {
       trilha.push({ nome: "Estadual", rota: "#/estados" });
       trilha.push({ nome: uf.toUpperCase(), rota: `#/estado/${uf}` });
     } else {
-      const m = acharMunicipio(uf, params.get("m"));
+      const m = municipioAtual(uf, params.get("m"));
       trilha.push({ nome: "Municipal", rota: "#/municipios" });
       if (m) trilha.push({ nome: m.nome, rota: `#/municipio/${uf}/${m.codigo}` });
     }
@@ -843,10 +1051,10 @@ function ligarBusca() {
       return;
     }
     lista.innerHTML = achados.map(([uf, cod, nome]) => {
-      const tem = acharMunicipio(uf, cod);
-      return `<div onclick="abrirMunicipio('${uf}','${cod}',${tem ? "true" : "false"})">
+      const embutido = acharMunicipio(uf, cod);
+      return `<div onclick="abrirMunicipio('${uf}','${cod}')">
         ${esc(nome)}<span class="uf">${esc(uf.toUpperCase())}</span>
-        ${tem ? "" : '<span class="aviso-sem">sem dados neste snapshot</span>'}
+        ${embutido ? '<span class="obs" style="margin-left:8px;color:#1e8e3e">com seções/urnas</span>' : '<span class="obs" style="margin-left:8px;color:#5b6b7c">ao vivo</span>'}
       </div>`;
     }).join("");
     lista.style.display = "block";
@@ -858,11 +1066,7 @@ document.addEventListener("click", (ev) => {
   if (lista && !ev.target.closest(".busca")) lista.style.display = "none";
 });
 
-function abrirMunicipio(uf, codigo, temDados) {
-  if (!temDados) {
-    alert("Este município não está incluído neste snapshot.\n\nGere novamente com:\neleitor html --municipio Nome/" + uf.toUpperCase());
-    return;
-  }
+function abrirMunicipio(uf, codigo) {
   location.hash = `#/municipio/${uf}/${codigo}`;
 }
 

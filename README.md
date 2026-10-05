@@ -15,6 +15,14 @@ dados novos (inclusive votos por seção), dê duplo clique em **`publicar.bat`*
 No próprio site, o botão **"Atualizar online"** atualiza os totais na hora (Brasil,
 estados, municípios e zonas) sem republicar.
 
+O site tem ainda:
+- **Busca ao vivo**: qualquer município do Brasil (ex.: Niterói, Rio de Janeiro) é
+  buscado na hora no TSE (Brasil, estado, município e zonas). Votos por seção/urna
+  ficam disponíveis apenas para os municípios embutidos no arquivo.
+- **Painel do Congresso**: Câmara (513), Senado (54 novos + 27 antigos de 2022),
+  assembleias estaduais e distrital, com gráfico de parlamento (hemiciclo) por
+  partido e tabela. Preenche conforme os estados finalizam.
+
 Fontes oficiais (JSON públicos):
 
 - Resultados (EA20): `https://resultados.tse.jus.br/oficial/ele2026/{eleicao}/dados/{abr}/...-u.json`
