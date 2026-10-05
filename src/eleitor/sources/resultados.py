@@ -109,6 +109,7 @@ def parse_resultado(data: dict[str, Any]) -> ResultadoCargo:
                         situacao=cand.get("st", "") or "",
                         eleito=cand.get("e") == "s",
                         sqcand=str(cand.get("sqcand", "")),
+                        destinacao=cand.get("dvt", "") or "",
                     )
                 )
     candidatos.sort(key=lambda c: c.votos, reverse=True)

@@ -70,10 +70,13 @@ def _res_dict(res: ResultadoCargo, fotos: dict[str, str] | None = None) -> dict[
     }
 
 
-def _resumo_proporcional(res: ResultadoCargo, top: int = 50) -> dict[str, Any]:
+def _resumo_proporcional(res: ResultadoCargo, top: int = 150) -> dict[str, Any]:
     partidos: dict[str, int] = {}
     eleitos: list[dict[str, Any]] = []
+    anulados_sub_judice = 0
     for cand in res.candidatos:
+        if cand.destinacao and cand.destinacao.lower() != "válido":
+            anulados_sub_judice += 1
         if cand.eleito:
             partidos[cand.partido] = partidos.get(cand.partido, 0) + 1
             eleitos.append(
@@ -83,6 +86,8 @@ def _resumo_proporcional(res: ResultadoCargo, top: int = 50) -> dict[str, Any]:
                     "p": cand.partido,
                     "v": cand.votos,
                     "pct": cand.percentual,
+                    "st": cand.situacao,
+                    "dvt": cand.destinacao,
                 }
             )
     ranking: list[dict[str, Any]] = []
@@ -96,6 +101,8 @@ def _resumo_proporcional(res: ResultadoCargo, top: int = 50) -> dict[str, Any]:
                 "v": cand.votos,
                 "pct": cand.percentual,
                 "e": cand.eleito,
+                "st": cand.situacao,
+                "dvt": cand.destinacao,
             }
         )
         vistos.add(cand.numero)
@@ -109,6 +116,8 @@ def _resumo_proporcional(res: ResultadoCargo, top: int = 50) -> dict[str, Any]:
                     "v": cand.votos,
                     "pct": cand.percentual,
                     "e": True,
+                    "st": cand.situacao,
+                    "dvt": cand.destinacao,
                 }
             )
     t = res.totalizacao
@@ -131,6 +140,7 @@ def _resumo_proporcional(res: ResultadoCargo, top: int = 50) -> dict[str, Any]:
         "partidos": partidos,
         "eleitos": eleitos,
         "ranking": ranking,
+        "anulados_sub_judice": anulados_sub_judice,
     }
 
 

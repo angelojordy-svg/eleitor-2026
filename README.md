@@ -60,7 +60,7 @@ Ou diretamente o executável do venv:
 .venv\Scripts\eleitor secao Parauapebas --uf pa --zona 75 --secao 1 --cargo governador
 .venv\Scripts\eleitor votos Parauapebas --uf pa --zona 75 --cargo governador
 .venv\Scripts\eleitor governadores                  # todos os estados de uma vez
-.venv\Scripts\eleitor html --municipio Ananindeua/PA --municipio Parauapebas/PA --out resultado-2026.html
+.venv\Scripts\eleitor html --municipio Parauapebas/PA --out resultado-2026.html
 .venv\Scripts\eleitor uf pa --cargo governador --watch 30
 .venv\Scripts\eleitor br --cargo presidente --watch 30
 .venv\Scripts\eleitor selftest

@@ -5,7 +5,7 @@ echo  Atualizar o site publicado (GitHub Pages)
 echo ============================================
 echo.
 echo Gerando o site com os dados mais recentes do TSE...
-".venv\Scripts\eleitor.exe" html --municipio Ananindeua/PA --municipio Parauapebas/PA --out resultado-2026.html
+".venv\Scripts\eleitor.exe" html --municipio Parauapebas/PA --out resultado-2026.html
 if errorlevel 1 goto fim
 
 echo.

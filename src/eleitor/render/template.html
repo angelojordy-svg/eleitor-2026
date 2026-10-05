@@ -300,6 +300,7 @@
   .card-uf .pct { font-size: 12px; color: var(--suave); }
   .vazio { color: var(--suave); font-size: 14px; padding: 12px 0; }
   .linha-eleito { background: #eafaf0; }
+  .tag-anulado { color: #b0413e; font-size: 11px; border: 1px solid #e6b3b3; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
   .hemi-wrap { display: flex; justify-content: center; padding: 12px 0 4px; overflow-x: auto; }
   .hemi { max-width: 100%; height: auto; }
   .legenda { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 14px 0; }
@@ -443,8 +444,10 @@ function painelProporcional(res, titulo) {
   const vagas = res.vagas || 0;
   const t = res.tot || {};
   const v = res.votos || {};
+  const anulados = res.anulados_sub_judice || 0;
+  const situacao = (c) => `${esc(c.st || "—")}${c.dvt && c.dvt.toLowerCase() !== "válido" ? ` <span class="tag-anulado">${esc(c.dvt)}</span>` : ""}`;
   const linhasEleitos = eleitos.map((c, i) => `<tr class="linha-eleito">
-    <td>${i + 1}º</td><td>${esc(c.nome)}</td><td>${esc(c.p)}</td><td class="num">${esc(c.n)}</td><td class="num">${fmt(c.v)}</td><td class="num">${pct(c.pct)}</td>
+    <td>${i + 1}º</td><td>${esc(c.nome)}</td><td>${esc(c.p)}</td><td class="num">${esc(c.n)}</td><td class="num">${fmt(c.v)}</td><td class="num">${pct(c.pct)}</td><td>${situacao(c)}</td>
   </tr>`).join("");
   const linhasRanking = ranking.map((c, i) => `<tr class="${c.e ? "linha-eleito" : ""}">
     <td>${i + 1}º</td>
@@ -453,24 +456,25 @@ function painelProporcional(res, titulo) {
     <td class="num">${esc(c.n)}</td>
     <td class="num">${fmt(c.v)}</td>
     <td class="num">${pct(c.pct)}</td>
-    <td>${c.e ? '<span class="selo">ELEITO</span>' : ""}</td></tr>`).join("");
+    <td>${c.e ? '<span class="selo">ELEITO</span> ' : ""}${situacao(c)}</td></tr>`).join("");
   return `<div class="painel">
     <h2>${esc(titulo)}</h2>
     <div class="progresso"><span style="width:${Math.min(100, t.pct || 0)}%"></span></div>
     <div class="linha-info">Vagas: <strong>${vagas}</strong> • Eleitos: <strong>${eleitos.length}</strong>${vagas ? " / " + vagas : ""} • Seções totalizadas: ${fmt(t.st)}/${fmt(t.ts)} (${pct(t.pct)}) • gerado em ${esc(t.gerado || "—")}</div>
-    <div class="linha-info">Votos válidos: <strong>${fmt(v.validos)}</strong> • Brancos: ${fmt(v.brancos)} • Nulos: ${fmt(v.nulos)}</div>
+    <div class="linha-info">Votos válidos: <strong>${fmt(v.validos)}</strong> • Brancos: ${fmt(v.brancos)} • Nulos: ${fmt(v.nulos)}${anulados ? ` • Votos anulados sub judice: <strong>${anulados}</strong>` : ""}</div>
+    <p class="dica">Candidato com muitos votos e "Não eleito" pode ser <strong>Suplente</strong> (quociente partidário) ou ter votos <strong>anulados sub judice</strong> — veja a coluna Situação.</p>
   </div>
   <h3>Cadeiras por partido</h3>
   ${renderHemiciclo(partidos)}
   ${partidos.length ? legendaCongresso(partidos, false) + tabelaCongresso(partidos) : ""}
   <h3>Eleitos (${eleitos.length}${vagas ? " de " + vagas : ""})</h3>
   ${linhasEleitos ? `<div style="overflow:auto"><table class="tabela"><thead><tr>
-    <th>#</th><th>Candidato</th><th>Partido</th><th class="num">Nº</th><th class="num">Votos</th><th class="num">%</th>
+    <th>#</th><th>Candidato</th><th>Partido</th><th class="num">Nº</th><th class="num">Votos</th><th class="num">%</th><th>Situação</th>
   </tr></thead><tbody>${linhasEleitos}</tbody></table></div>`
     : `<div class="vazio">Nenhum eleito atribuído ainda neste estado (o TSE marca os eleitos quando a totalização do estado é finalizada).</div>`}
   <h3>Mais votados</h3>
   <div style="overflow:auto"><table class="tabela"><thead><tr>
-    <th>#</th><th>Candidato</th><th>Partido</th><th class="num">Nº</th><th class="num">Votos</th><th class="num">%</th><th></th>
+    <th>#</th><th>Candidato</th><th>Partido</th><th class="num">Nº</th><th class="num">Votos</th><th class="num">%</th><th>Situação</th>
   </tr></thead><tbody>${linhasRanking}</tbody></table></div>`;
 }
 
@@ -654,8 +658,13 @@ function viewCongresso(casa, ufSel) {
 
   const alvo = dados.vagas || 0;
   const notaTotal = alvo ? `${total} de ${alvo} cadeiras (parcial — preenche conforme os estados finalizam)` : `${total} cadeiras atribuídas neste snapshot (parcial)`;
+  const pendentes = porUfMap ? Object.entries(porUfMap).filter(([uf, x]) => x.vagas > 0 && x.total === 0).map(([uf]) => uf.toUpperCase()) : [];
+  const notaPendentes = pendentes.length
+    ? `<p class="dica">Estados ainda <strong>sem eleitos atribuídos</strong> (totalização não finalizada): <strong>${pendentes.join(", ")}</strong>.</p>`
+    : "";
   return `<h2>Congresso — ${esc(titulo)}</h2>${tabHtml}${seletor}
     <p class="dica">${esc(escopo)} • <strong>${notaTotal}</strong>. Use "Atualizar online" para recalcular.</p>
+    ${notaPendentes}
     ${renderHemiciclo(partidos)}
     ${legendaCongresso(partidos, false)}
     ${tabelaCongresso(partidos)}`;
