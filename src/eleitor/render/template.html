@@ -559,13 +559,13 @@ function ordenarPartidos(partidos) {
     .sort((a, b) => b.n - a.n);
 }
 
-function viewCongresso(casa) {
+function viewCongresso(casa, ufSel) {
   const c = DADOS.congresso || {};
   const abas = [
-    ["camara", "Câmara (Dep. Federal)", 513],
-    ["senado", "Senado", 81],
-    ["estaduais", "Assembleias estaduais", null],
-    ["distrital", "Distrital (DF)", null],
+    ["camara", "Câmara (Dep. Federal)"],
+    ["senado", "Senado"],
+    ["estaduais", "Assembleias estaduais"],
+    ["distrital", "Distrital (DF)"],
   ];
   const tabHtml = `<div class="abas">${abas.map(([id, nome]) =>
     `<button class="${casa === id ? "ativa" : ""}" onclick="location.hash='#/congresso?casa=${id}'">${esc(nome)}</button>`
@@ -578,20 +578,38 @@ function viewCongresso(casa) {
     const totalNovos = novos.reduce((a, p) => a + p.n, 0);
     const totalAntigos = antigos.reduce((a, p) => a + p.n, 0);
     return `<h2>Congresso — Senado (81 cadeiras)</h2>${tabHtml}
-      <p class="dica">54 cadeiras em disputa em 2026 (destacadas) + 27 eleitas em 2022 (tracejadas). Novos: <strong>${totalNovos}</strong> • Antigos: <strong>${totalAntigos}</strong>.</p>
+      <p class="dica">54 cadeiras em disputa em 2026 (destacadas) + 27 eleitas em 2022 (tracejadas). Novos: <strong>${totalNovos}/54</strong> (parcial) • Antigos: <strong>${totalAntigos}</strong>.</p>
       ${renderHemiciclo(partidos)}
       ${legendaCongresso(partidos, true)}
       <h3>Novos (2026)</h3>${tabelaCongresso(novos)}
       <h3>Antigos (2022)</h3>${tabelaCongresso(antigos.map((p) => ({ sg: p.sg, n: p.n, tipo: "antigo" })))}`;
   }
 
-  const mapa = { camara: c.camara, estaduais: c.estaduais, distrital: c.distrital };
-  const dados = mapa[casa] || { total: 0, partidos: {} };
+  const porUfMap = casa === "camara" ? c.camara_por_uf : casa === "estaduais" ? c.estaduais_por_uf : null;
+  const nacional = casa === "camara" ? c.camara : casa === "estaduais" ? c.estaduais : c.distrital;
+  let dados = nacional || { total: 0, partidos: {} };
+  let escopo = "Brasil (todos os estados)";
+  if (porUfMap && ufSel && porUfMap[ufSel]) {
+    dados = porUfMap[ufSel];
+    escopo = "Estado: " + ufSel.toUpperCase();
+  }
   const partidos = ordenarPartidos(dados.partidos);
-  const titulo = casa === "camara" ? "Câmara dos Deputados (513)" : casa === "estaduais" ? "Assembleias estaduais (Brasil)" : "Câmara Distrital (DF)";
+  const titulo = casa === "camara" ? "Câmara dos Deputados" : casa === "estaduais" ? "Assembleias estaduais" : "Câmara Distrital (DF)";
   const total = partidos.reduce((a, p) => a + p.n, 0);
-  return `<h2>Congresso — ${esc(titulo)}</h2>${tabHtml}
-    <p class="dica">Cadeiras atribuídas neste snapshot: <strong>${total}</strong>. Atualiza conforme os estados finalizam (botão "Atualizar online").</p>
+
+  let seletor = "";
+  if (porUfMap) {
+    const ufs = [...new Set((DADOS.catalogo || []).map((x) => x[0]))].sort();
+    seletor = `<div class="filtros"><select onchange="location.hash='#/congresso?casa=${casa}&uf='+this.value">
+      <option value="">Brasil (todos)</option>
+      ${ufs.map((u) => `<option value="${u}" ${u === ufSel ? "selected" : ""}>${u.toUpperCase()}</option>`).join("")}
+    </select><span class="contagem">Filtre por estado</span></div>`;
+  }
+
+  const alvo = casa === "camara" ? "513" : "";
+  const notaTotal = alvo ? `${total} de ${alvo} cadeiras (parcial — preenche conforme os estados finalizam)` : `${total} cadeiras atribuídas neste snapshot (parcial)`;
+  return `<h2>Congresso — ${esc(titulo)}</h2>${tabHtml}${seletor}
+    <p class="dica">${esc(escopo)} • <strong>${notaTotal}</strong>. Use "Atualizar online" para recalcular.</p>
     ${renderHemiciclo(partidos)}
     ${legendaCongresso(partidos, false)}
     ${tabelaCongresso(partidos)}`;
@@ -977,7 +995,7 @@ function render() {
     html = viewMunicipios();
     trilha.push({ nome: "Municipal" });
   } else if (partes[0] === "congresso") {
-    html = viewCongresso(params.get("casa") || "camara");
+    html = viewCongresso(params.get("casa") || "camara", params.get("uf") || "");
     trilha.push({ nome: "Congresso" });
   } else if (partes[0] === "municipio" && partes[1] && partes[2]) {
     const uf = partes[1], codigo = partes[2];

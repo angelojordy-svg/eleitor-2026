@@ -22,13 +22,6 @@ CARGOS_ESTADO = (3, 5)
 CARGOS_MUNICIPIO = (1, 3, 5, 6, 7)
 CARGOS_COM_FOTO = (1, 3, 5)
 
-CARGOS_CONGRESSO = [
-    ("camara", 6, None),
-    ("senado_novos", 5, None),
-    ("estaduais", 7, None),
-    ("distrital", 8, ["df"]),
-]
-
 SENADORES_2022 = {
     "PL": 8,
     "UNIÃO": 4,
@@ -228,36 +221,57 @@ def _coletar_municipio(
     }
 
 
-def _agregar_congresso(
+def _agregar_congresso_por_uf(
     client: CachedClient, cargo: int, ufs: list[str]
 ) -> dict[str, Any]:
     from eleitor.sources.resultados import parse_resultado, url_resultado
 
     urls = [url_resultado(ELEICAO_ESTADUAL, cargo, uf=uf) for uf in ufs]
     corpos = client.get_urls(urls, ttl=TTL_LIVE, allow_404=True)
-    partidos: dict[str, int] = {}
-    total = 0
-    for url in urls:
+    por_uf: dict[str, Any] = {}
+    for uf, url in zip(ufs, urls):
         body = corpos.get(url)
         if not body:
+            por_uf[uf] = {"total": 0, "partidos": {}}
             continue
         res = parse_resultado(body)
+        partidos: dict[str, int] = {}
+        total = 0
         for cand in res.candidatos:
             if cand.eleito:
                 total += 1
                 partidos[cand.partido] = partidos.get(cand.partido, 0) + 1
+        por_uf[uf] = {"total": total, "partidos": partidos}
+    return por_uf
+
+
+def _somar_congresso(por_uf: dict[str, Any]) -> dict[str, Any]:
+    partidos: dict[str, int] = {}
+    total = 0
+    for v in por_uf.values():
+        total += v["total"]
+        for sg, n in v["partidos"].items():
+            partidos[sg] = partidos.get(sg, 0) + n
     return {"total": total, "partidos": partidos}
 
 
 def _coletar_congresso(
     client: CachedClient, progresso: Callable[[str], None] | None = None
 ) -> dict[str, Any]:
-    ufs = [u for u in UF_SIGLAS if u != "ZZ"]
+    ufs = [u.lower() for u in UF_SIGLAS if u != "ZZ"]
+    nomes = {
+        "camara": (6, ufs),
+        "senado_novos": (5, ufs),
+        "estaduais": (7, ufs),
+        "distrital": (8, ["df"]),
+    }
     casas: dict[str, Any] = {}
-    for nome, cargo, ufs_custom in CARGOS_CONGRESSO:
+    for nome, (cargo, lista) in nomes.items():
         if progresso:
             progresso(f"Congresso — {nome}...")
-        casas[nome] = _agregar_congresso(client, cargo, ufs_custom or ufs)
+        por_uf = _agregar_congresso_por_uf(client, cargo, lista)
+        casas[nome] = _somar_congresso(por_uf)
+        casas[nome + "_por_uf"] = por_uf
     casas["senado_antigos"] = {
         "total": sum(SENADORES_2022.values()),
         "partidos": dict(SENADORES_2022),
