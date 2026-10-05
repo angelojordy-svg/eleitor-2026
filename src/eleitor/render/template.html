@@ -438,12 +438,15 @@ function painelResultado(res, titulo, ctx) {
 
 function painelProporcional(res, titulo) {
   const ranking = res.ranking || [];
+  const eleitos = res.eleitos || [];
   const partidos = ordenarPartidos(res.partidos);
   const vagas = res.vagas || 0;
-  const eleitos = (res.eleitos || []).length;
   const t = res.tot || {};
   const v = res.votos || {};
-  const linhas = ranking.map((c, i) => `<tr class="${c.e ? "linha-eleito" : ""}">
+  const linhasEleitos = eleitos.map((c, i) => `<tr class="linha-eleito">
+    <td>${i + 1}º</td><td>${esc(c.nome)}</td><td>${esc(c.p)}</td><td class="num">${esc(c.n)}</td><td class="num">${fmt(c.v)}</td><td class="num">${pct(c.pct)}</td>
+  </tr>`).join("");
+  const linhasRanking = ranking.map((c, i) => `<tr class="${c.e ? "linha-eleito" : ""}">
     <td>${i + 1}º</td>
     <td>${esc(c.nome)}</td>
     <td>${esc(c.p)}</td>
@@ -454,17 +457,21 @@ function painelProporcional(res, titulo) {
   return `<div class="painel">
     <h2>${esc(titulo)}</h2>
     <div class="progresso"><span style="width:${Math.min(100, t.pct || 0)}%"></span></div>
-    <div class="linha-info">Vagas: <strong>${vagas}</strong> • Eleitos: <strong>${eleitos}</strong> • Seções totalizadas: ${fmt(t.st)}/${fmt(t.ts)} (${pct(t.pct)}) • gerado em ${esc(t.gerado || "—")}</div>
+    <div class="linha-info">Vagas: <strong>${vagas}</strong> • Eleitos: <strong>${eleitos.length}</strong>${vagas ? " / " + vagas : ""} • Seções totalizadas: ${fmt(t.st)}/${fmt(t.ts)} (${pct(t.pct)}) • gerado em ${esc(t.gerado || "—")}</div>
     <div class="linha-info">Votos válidos: <strong>${fmt(v.validos)}</strong> • Brancos: ${fmt(v.brancos)} • Nulos: ${fmt(v.nulos)}</div>
   </div>
   <h3>Cadeiras por partido</h3>
   ${renderHemiciclo(partidos)}
-  ${legendaCongresso(partidos, false)}
-  ${tabelaCongresso(partidos)}
-  <h3>Mais votados e eleitos</h3>
+  ${partidos.length ? legendaCongresso(partidos, false) + tabelaCongresso(partidos) : ""}
+  <h3>Eleitos (${eleitos.length}${vagas ? " de " + vagas : ""})</h3>
+  ${linhasEleitos ? `<div style="overflow:auto"><table class="tabela"><thead><tr>
+    <th>#</th><th>Candidato</th><th>Partido</th><th class="num">Nº</th><th class="num">Votos</th><th class="num">%</th>
+  </tr></thead><tbody>${linhasEleitos}</tbody></table></div>`
+    : `<div class="vazio">Nenhum eleito atribuído ainda neste estado (o TSE marca os eleitos quando a totalização do estado é finalizada).</div>`}
+  <h3>Mais votados</h3>
   <div style="overflow:auto"><table class="tabela"><thead><tr>
     <th>#</th><th>Candidato</th><th>Partido</th><th class="num">Nº</th><th class="num">Votos</th><th class="num">%</th><th></th>
-  </tr></thead><tbody>${linhas}</tbody></table></div>`;
+  </tr></thead><tbody>${linhasRanking}</tbody></table></div>`;
 }
 
 function tabsCargos(cargos, atual, rotaBase) {
@@ -534,7 +541,7 @@ function layoutHemiciclo(total, rows) {
 
 function renderHemiciclo(partidos) {
   const total = partidos.reduce((a, p) => a + p.n, 0);
-  if (!total) return vazio("Sem cadeiras atribuídas ainda neste snapshot.");
+  if (!total) return `<div class="vazio">Ainda não há cadeiras atribuídas neste recorte (totalização em andamento). A lista dos mais votados aparece abaixo.</div>`;
   const rows = total > 400 ? 14 : total > 120 ? 11 : total > 40 ? 9 : 7;
   const seats = layoutHemiciclo(total, rows);
   seats.sort((a, b) => a.ang - b.ang);
@@ -610,10 +617,16 @@ function viewCongresso(casa, ufSel) {
     const totalNovos = novos.reduce((a, p) => a + p.n, 0);
     const totalAntigos = antigos.reduce((a, p) => a + p.n, 0);
     const vagasNovos = (c.senado_novos || {}).vagas || 54;
+    const soma = {};
+    novos.forEach((p) => { soma[p.sg] = (soma[p.sg] || 0) + p.n; });
+    antigos.forEach((p) => { soma[p.sg] = (soma[p.sg] || 0) + p.n; });
+    const combinado = ordenarPartidos(soma);
     return `<h2>Congresso — Senado (81 cadeiras)</h2>${tabHtml}
-      <p class="dica">54 cadeiras em disputa em 2026 (destacadas) + 27 eleitas em 2022 (tracejadas). Novos: <strong>${totalNovos}/${vagasNovos}</strong> (parcial) • Antigos: <strong>${totalAntigos}</strong>.</p>
+      <p class="dica">54 cadeiras em disputa em 2026 (destacadas) + 27 eleitas em 2022 (tracejadas). Novos: <strong>${totalNovos}/${vagasNovos}</strong> (parcial) • Antigos: <strong>${totalAntigos}</strong> • Total: <strong>${totalNovos + totalAntigos}</strong>.</p>
       ${renderHemiciclo(partidos)}
       ${legendaCongresso(partidos, true)}
+      <h3>Somatório do Senado por partido (novos + antigos)</h3>
+      ${tabelaCongresso(combinado)}
       <h3>Novos (2026)</h3>${tabelaCongresso(novos)}
       <h3>Antigos (2022)</h3>${tabelaCongresso(antigos.map((p) => ({ sg: p.sg, n: p.n, tipo: "antigo" })))}`;
   }
@@ -666,19 +679,29 @@ async function carregarMunicipio(uf, codigo) {
     const ele = ELEICAO_DO_CARGO[cg] || 6259;
     try {
       const total = parseResultadoJS(await fetchJson(urlResultado(ele, cg, uf, codigo)));
-      const zs = [];
-      for (const z of info.zonas) {
-        try {
-          const zr = parseResultadoJS(await fetchJson(urlResultado(ele, cg, uf, codigo, z)));
-          zs.push({ zona: z, ...zr });
-        } catch (e) {}
-      }
-      cargos[cg] = { cargo_nome: total.cargo_nome, total: total, zonas: zs };
+      cargos[cg] = { cargo_nome: total.cargo_nome, total: total, zonas: [], zonasCarregadas: false };
     } catch (e) {}
   }
   const mun = { uf: uf, codigo: codigo, nome: info.nome, cargos: cargos, secoes_por_zona: {}, aoVivo: true };
   MUN_CACHE[uf + "/" + codigo] = mun;
   return mun;
+}
+
+async function carregarZonas(uf, codigo, cg) {
+  const mun = MUN_CACHE[uf + "/" + codigo];
+  const info = catalogoInfo(uf, codigo);
+  if (!mun || !info || !mun.cargos[cg] || mun.cargos[cg].zonasCarregadas) return;
+  mun.cargos[cg].zonasCarregadas = true;
+  const ele = ELEICAO_DO_CARGO[cg] || 6259;
+  const zs = [];
+  for (const z of info.zonas) {
+    try {
+      const zr = parseResultadoJS(await fetchJson(urlResultado(ele, cg, uf, codigo, z)));
+      zs.push({ zona: z, ...zr });
+    } catch (e) {}
+  }
+  mun.cargos[cg].zonas = zs;
+  render();
 }
 
 function municipioAtual(uf, codigo) {
@@ -787,6 +810,9 @@ function viewMunicipio(uf, codigo, params) {
   let atual = params.get("cargo");
   if (!atual || !cargos[atual]) atual = chaves.includes("3") ? "3" : chaves[0];
   const info = cargos[atual];
+  if (m.aoVivo && info && !info.zonasCarregadas) {
+    carregarZonas(uf, codigo, atual);
+  }
   const zonas = (info.zonas || []).slice().sort((a, b) => a.zona.localeCompare(b.zona));
   const secoes = m.secoes_por_zona || {};
 
@@ -808,7 +834,7 @@ function viewMunicipio(uf, codigo, params) {
     </tbody></table>` : "";
 
   const notaVivo = m.aoVivo
-    ? `<p class="dica">Dados buscados <strong>ao vivo</strong> no TSE agora. Votos por seção/urna estão disponíveis apenas para os municípios embutidos no arquivo.</p>`
+    ? `<p class="dica">Dados buscados <strong>ao vivo</strong> no TSE agora.${info && !info.zonasCarregadas ? " Carregando zonas..." : ""} Votos por seção/urna só estão disponíveis para os municípios embutidos no arquivo.</p>`
     : "";
 
   return `<h2>${esc(m.nome)} — ${esc(uf.toUpperCase())}</h2>
