@@ -1202,6 +1202,7 @@ function parseResultadoJS(data) {
   return {
     cargo: parseInt(cargoData.cd || "0", 10),
     cargo_nome: cargoData.nmn || "",
+    vagas: parseInt(cargoData.nv || "0", 10) || 0,
     tot: {
       st: parseInt(s.st || "0", 10),
       ts: parseInt(s.ts || "0", 10),
@@ -1226,6 +1227,57 @@ function mapaFotos(res) {
 
 function aplicarFotos(res, fotos) {
   (res.cands || []).forEach((c) => { if (!c.foto && fotos[c.n]) c.foto = fotos[c.n]; });
+}
+
+/* Recalcula o agregado do Congresso (Câmara, Senado, assembleias) a partir
+   dos estados já atualizados, espelhando _coletar_congresso do snapshot. */
+const SENADO_2022_FALLBACK = { PL: 8, "UNIÃO": 4, PSD: 3, MDB: 2, PT: 3, REPUBLICANOS: 4, PP: 2, PSB: 1 };
+
+function partidosDoCargo(cargoObj) {
+  if (!cargoObj) return { partidos: {}, total: 0, vagas: 0 };
+  if (cargoObj.partidos) {
+    const partidos = Object.assign({}, cargoObj.partidos);
+    const total = Object.values(partidos).reduce((a, n) => a + n, 0);
+    return { partidos: partidos, total: total, vagas: cargoObj.vagas || 0 };
+  }
+  const partidos = {};
+  for (const cand of cargoObj.cands || []) {
+    if (cand.e && cand.p) partidos[cand.p] = (partidos[cand.p] || 0) + 1;
+  }
+  const total = Object.values(partidos).reduce((a, n) => a + n, 0);
+  return { partidos: partidos, total: total, vagas: cargoObj.vagas || 0 };
+}
+
+function montarCasaCongresso(cargo) {
+  const porUf = {};
+  const partidos = {};
+  let total = 0;
+  let vagas = 0;
+  for (const est of DADOS.estados || []) {
+    const info = partidosDoCargo((est.cargos || {})[cargo]);
+    porUf[est.uf] = { total: info.total, vagas: info.vagas, partidos: info.partidos };
+    total += info.total;
+    vagas += info.vagas;
+    for (const sg of Object.keys(info.partidos)) partidos[sg] = (partidos[sg] || 0) + info.partidos[sg];
+  }
+  return { agregado: { total: total, vagas: vagas, partidos: partidos }, porUf: porUf };
+}
+
+function recalcularCongresso() {
+  const anterior = DADOS.congresso || {};
+  const casas = {};
+  for (const par of [["camara", "6"], ["senado_novos", "5"], ["estaduais", "7"], ["distrital", "8"]]) {
+    const { agregado, porUf } = montarCasaCongresso(par[1]);
+    casas[par[0]] = agregado;
+    casas[par[0] + "_por_uf"] = porUf;
+  }
+  casas.senado_antigos = anterior.senado_antigos || {
+    total: Object.values(SENADO_2022_FALLBACK).reduce((a, n) => a + n, 0),
+    vagas: 27,
+    partidos: Object.assign({}, SENADO_2022_FALLBACK),
+  };
+  DADOS.congresso = casas;
+  return casas;
 }
 
 async function fetchJson(url) {
@@ -1287,6 +1339,7 @@ async function atualizarOnline() {
     }
 
     await Promise.all(tarefas);
+    recalcularCongresso();
     DADOS.gerado_em = new Date().toLocaleString("pt-BR");
     render();
     atualizarMeta();
