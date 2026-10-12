@@ -74,9 +74,13 @@ def _resumo_proporcional(res: ResultadoCargo, top: int = 150) -> dict[str, Any]:
     partidos: dict[str, int] = {}
     eleitos: list[dict[str, Any]] = []
     anulados_sub_judice = 0
+    primeiro_suplente: dict[str, str] = {}
     for cand in res.candidatos:
         if cand.destinacao and cand.destinacao.lower() != "válido":
             anulados_sub_judice += 1
+        grupo = cand.agremiacao or cand.partido
+        if cand.situacao.strip().lower().startswith("suplente") and grupo not in primeiro_suplente:
+            primeiro_suplente[grupo] = cand.numero
         if cand.eleito:
             partidos[cand.partido] = partidos.get(cand.partido, 0) + 1
             eleitos.append(
@@ -103,6 +107,7 @@ def _resumo_proporcional(res: ResultadoCargo, top: int = 150) -> dict[str, Any]:
                 "e": cand.eleito,
                 "st": cand.situacao,
                 "dvt": cand.destinacao,
+                "sup": primeiro_suplente.get(cand.agremiacao or cand.partido) == cand.numero,
             }
         )
         vistos.add(cand.numero)
@@ -118,6 +123,7 @@ def _resumo_proporcional(res: ResultadoCargo, top: int = 150) -> dict[str, Any]:
                     "e": True,
                     "st": cand.situacao,
                     "dvt": cand.destinacao,
+                    "sup": False,
                 }
             )
     t = res.totalizacao

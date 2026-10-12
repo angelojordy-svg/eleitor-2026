@@ -15,6 +15,7 @@ class Candidato:
     eleito: bool
     sqcand: str = ""
     destinacao: str = ""
+    agremiacao: str = ""
 
 
 @dataclass

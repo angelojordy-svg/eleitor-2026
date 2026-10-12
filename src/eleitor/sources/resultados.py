@@ -95,6 +95,7 @@ def parse_resultado(data: dict[str, Any]) -> ResultadoCargo:
 
     candidatos: list[Candidato] = []
     for agremiacao in cargo_data.get("agr", []):
+        grupo = agremiacao.get("com") or agremiacao.get("nm") or ""
         for partido in agremiacao.get("par", []):
             sigla = partido.get("sg") or agremiacao.get("com") or ""
             for cand in partido.get("cand", []):
@@ -110,6 +111,7 @@ def parse_resultado(data: dict[str, Any]) -> ResultadoCargo:
                         eleito=cand.get("e") == "s",
                         sqcand=str(cand.get("sqcand", "")),
                         destinacao=cand.get("dvt", "") or "",
+                        agremiacao=grupo,
                     )
                 )
     candidatos.sort(key=lambda c: c.votos, reverse=True)

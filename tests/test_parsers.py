@@ -124,6 +124,8 @@ def test_parse_resultado_ordena_por_votos():
     assert res.candidatos[0].votos == 1200
     assert abs(res.candidatos[0].percentual - 54.55) < 0.001
     assert res.candidatos[1].partido == "PL"
+    assert res.candidatos[0].agremiacao == "PT / PC do B"
+    assert res.candidatos[1].agremiacao == "PL"
     assert res.votos.validos == 2200
     assert res.votos.brancos == 60
     assert res.totalizacao.secoes_totalizadas == 40

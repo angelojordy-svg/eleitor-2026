@@ -2,7 +2,12 @@ import json
 
 from eleitor.models import Candidato, ResultadoCargo, Totalizacao, TotaisVotos
 from eleitor.render.html import render_html
-from eleitor.services.snapshot import _cand_dict, _res_dict, _secoes_dict
+from eleitor.services.snapshot import (
+    _cand_dict,
+    _res_dict,
+    _resumo_proporcional,
+    _secoes_dict,
+)
 
 
 def _resultado_exemplo() -> ResultadoCargo:
@@ -73,6 +78,30 @@ def test_cand_dict_sem_foto():
     dados = _cand_dict(cand)
     assert dados["nome"] == "FULANO"
     assert "foto" not in dados
+
+
+def test_resumo_proporcional_marca_primeiro_suplente_por_agremiacao():
+    res = ResultadoCargo(
+        eleicao=6259,
+        cargo=6,
+        cargo_nome="Deputado Federal",
+        abrangencia="pa",
+        candidatos=[
+            Candidato("4001", "ELEITO A", "ELEITO A", "PT", 90000, 30.0, "Eleito por QP", True, agremiacao="PT / PV"),
+            Candidato("4002", "SUPLENTE A", "SUPLENTE A", "PV", 9000, 3.0, "Suplente", False, agremiacao="PT / PV"),
+            Candidato("4003", "SUPLENTE B", "SUPLENTE B", "PL", 8000, 2.5, "Suplente", False, agremiacao="PL"),
+            Candidato("4004", "SUPLENTE C", "SUPLENTE C", "PT", 7000, 2.0, "Suplente", False, agremiacao="PT / PV"),
+        ],
+        votos=TotaisVotos(),
+        totalizacao=Totalizacao(),
+        vagas=2,
+    )
+    resumo = _resumo_proporcional(res)
+    sup = {item["n"]: item["sup"] for item in resumo["ranking"]}
+    assert sup["4002"] is True      # mais votado suplente da federação PT / PV
+    assert sup["4004"] is False     # segundo suplente da mesma federação
+    assert sup["4003"] is True      # único suplente do PL
+    assert sup["4001"] is False     # eleito, não é suplente
 
 
 def test_secoes_dict_agrega_votos():

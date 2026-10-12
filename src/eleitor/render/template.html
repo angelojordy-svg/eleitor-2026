@@ -301,6 +301,7 @@
   .vazio { color: var(--suave); font-size: 14px; padding: 12px 0; }
   .linha-eleito { background: #eafaf0; }
   .tag-anulado { color: #b0413e; font-size: 11px; border: 1px solid #e6b3b3; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+  .tag-suplente { color: #8a6100; font-size: 11px; background: #fff7e0; border: 1px solid #ecd39a; border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
   .hemi-wrap { display: flex; justify-content: center; padding: 12px 0 4px; overflow-x: auto; }
   .hemi { max-width: 100%; height: auto; }
   .legenda { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 14px 0; }
@@ -445,7 +446,7 @@ function painelProporcional(res, titulo) {
   const t = res.tot || {};
   const v = res.votos || {};
   const anulados = res.anulados_sub_judice || 0;
-  const situacao = (c) => `${esc(c.st || "—")}${c.dvt && c.dvt.toLowerCase() !== "válido" ? ` <span class="tag-anulado">${esc(c.dvt)}</span>` : ""}`;
+  const situacao = (c) => `${c.sup ? '<span class="tag-suplente">1º suplente</span>' : esc(c.st || "—")}${c.dvt && c.dvt.toLowerCase() !== "válido" ? ` <span class="tag-anulado">${esc(c.dvt)}</span>` : ""}`;
   const linhasEleitos = eleitos.map((c, i) => `<tr class="linha-eleito">
     <td>${i + 1}º</td><td>${esc(c.nome)}</td><td>${esc(c.p)}</td><td class="num">${esc(c.n)}</td><td class="num">${fmt(c.v)}</td><td class="num">${pct(c.pct)}</td><td>${situacao(c)}</td>
   </tr>`).join("");
@@ -1193,6 +1194,10 @@ function parseResultadoJS(data) {
           v: parseInt(cand.vap || "0", 10) || 0,
           pct: parseFloat(String(cand.pvap || "0").replace(",", ".")) || 0,
           e: cand.e === "s",
+          st: cand.st || "",
+          dvt: cand.dvt || "",
+          sq: cand.sqcand || "",
+          agr: agr.com || agr.nm || sigla,
         });
       }
     }
@@ -1217,6 +1222,39 @@ function parseResultadoJS(data) {
     },
     cands: candidatos,
   };
+}
+
+/* Espelha _resumo_proporcional: cadeiras por partido, eleitos, ranking e
+   o 1º suplente de cada agremiação (partido/federação). */
+function enriquecerProporcional(res) {
+  const cands = res.cands || [];
+  const primeiroSuplente = {};
+  for (const c of cands) {
+    const grupo = c.agr || c.p;
+    const st = String(c.st || "").trim().toLowerCase();
+    if (st.startsWith("suplente") && !(grupo in primeiroSuplente)) {
+      primeiroSuplente[grupo] = c.n;
+    }
+  }
+  const partidos = {};
+  const eleitos = [];
+  let anulados = 0;
+  for (const c of cands) {
+    if (c.dvt && c.dvt.toLowerCase() !== "válido") anulados += 1;
+    if (c.e) {
+      partidos[c.p] = (partidos[c.p] || 0) + 1;
+      eleitos.push({ n: c.n, nome: c.nome, p: c.p, v: c.v, pct: c.pct, st: c.st || "", dvt: c.dvt || "" });
+    }
+  }
+  res.partidos = partidos;
+  res.eleitos = eleitos;
+  res.ranking = cands.map((c) => ({
+    n: c.n, nome: c.nome, p: c.p, v: c.v, pct: c.pct, e: c.e,
+    st: c.st || "", dvt: c.dvt || "",
+    sup: primeiroSuplente[c.agr || c.p] === c.n,
+  }));
+  res.anulados_sub_judice = anulados;
+  return res;
 }
 
 function mapaFotos(res) {
@@ -1312,6 +1350,7 @@ async function atualizarOnline() {
         const fotos = mapaFotos(est.cargos[cg]);
         tarefas.push(fetchJson(urlResultado(eleicao, cg, est.uf)).then((j) => {
           const novo = parseResultadoJS(j);
+          if (["6", "7", "8"].includes(String(cg))) enriquecerProporcional(novo);
           aplicarFotos(novo, fotos);
           est.cargos[cg] = novo;
         }).catch(() => { erros += 1; }));
