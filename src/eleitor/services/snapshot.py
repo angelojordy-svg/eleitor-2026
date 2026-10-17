@@ -200,13 +200,19 @@ def _baixar_fotos(
     return fotos
 
 
-def _coletar_brasil(client: CachedClient, com_fotos: bool) -> dict[str, Any]:
+def _coletar_brasil(client: CachedClient, com_fotos: bool, votos: dict[str, int] | None = None) -> dict[str, Any]:
     res = resultado(client, ELEICAO_FEDERAL, 1, ttl=TTL_LIVE)
+    if votos is not None:
+        for cand in res.candidatos:
+            if cand.sqcand:
+                votos[cand.sqcand] = cand.votos
     fotos = _baixar_fotos(client, res.candidatos, ELEICAO_FEDERAL, None) if com_fotos else {}
     return _res_dict(res, fotos)
 
 
-def _coletar_estados(client: CachedClient, com_fotos: bool) -> list[dict[str, Any]]:
+def _coletar_estados(
+    client: CachedClient, com_fotos: bool, votos: dict[str, int] | None = None
+) -> list[dict[str, Any]]:
     from eleitor.sources.resultados import parse_resultado
 
     ufs = [u.lower() for u in UF_SIGLAS if u != "ZZ"]
@@ -225,6 +231,11 @@ def _coletar_estados(client: CachedClient, com_fotos: bool) -> list[dict[str, An
         if not body:
             continue
         res = parse_resultado(body)
+        if votos is not None and chave != "1":
+            # Presidente usa o total nacional (via _coletar_brasil); aqui só os estaduais.
+            for cand in res.candidatos:
+                if cand.sqcand:
+                    votos[cand.sqcand] = cand.votos
         if chave in ("1", "3", "5"):
             fotos = _baixar_fotos(client, res.candidatos, eleicao, uf) if com_fotos else {}
             por_uf[uf][chave] = _res_dict(res, fotos)
@@ -350,6 +361,35 @@ def _coletar_congresso(
     return casas
 
 
+def _financas_dict(dados: dict[str, Any], votos: dict[str, int]) -> dict[str, Any]:
+    """Compacta o bake das finanças em vetores alinhados (chaves curtas)."""
+
+    colunas = ["nome", "partido", "uf", "cargo", "sit", "nr", "receita", "fundos", "gasto", "bens", "votos"]
+    itens: list[list[Any]] = []
+    for item in dados.get("itens", []):
+        itens.append(
+            [
+                item.get("nome", ""),
+                item.get("partido", ""),
+                item.get("uf", ""),
+                item.get("cargo", 0),
+                item.get("sit", ""),
+                item.get("nr", ""),
+                item.get("receita", 0.0),
+                item.get("fundos", 0.0),
+                item.get("gasto", 0.0),
+                item.get("bens", 0.0),
+                int(votos.get(item.get("sq", ""), 0)),
+            ]
+        )
+    return {
+        "gerado_em": dados.get("gerado_em", ""),
+        "parcial": True,
+        "colunas": colunas,
+        "itens": itens,
+    }
+
+
 def coletar_snapshot(
     client: CachedClient,
     loc: Localidades,
@@ -359,20 +399,36 @@ def coletar_snapshot(
     com_mapa: bool = True,
     com_mapa_municipios: list[str] | None = None,
     refazer_mapa: bool = False,
+    com_financas: bool = True,
+    refazer_financas: bool = False,
     progresso: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     def aviso(msg: str) -> None:
         if progresso:
             progresso(msg)
 
+    votos_sqcand: dict[str, int] = {}
+
     aviso("Brasil — resultado de Presidente...")
-    brasil = _coletar_brasil(client, com_fotos)
+    brasil = _coletar_brasil(client, com_fotos, votos_sqcand)
 
     aviso("Estados — Presidente, Governador, Senador e Deputados...")
-    estados = _coletar_estados(client, com_fotos)
+    estados = _coletar_estados(client, com_fotos, votos_sqcand)
 
     aviso("Congresso — agregando Câmara, Senado e assembleias...")
     congresso = _coletar_congresso(estados, progresso)
+
+    financas: dict[str, Any] | None = None
+    if com_financas:
+        from eleitor.services.financas import bake_financas
+
+        aviso("Finanças — prestação de contas do TSE (pode demorar na 1ª vez)...")
+        try:
+            financas = _financas_dict(
+                bake_financas(forcar=refazer_financas, progresso=progresso), votos_sqcand
+            )
+        except Exception as exc:  # rede/arquivo indisponível: artefato segue sem finanças
+            aviso(f"Finanças indisponível: {exc}")
 
     mapa: dict[str, Any] | None = None
     if com_mapa:
@@ -413,6 +469,7 @@ def coletar_snapshot(
         "brasil": brasil,
         "estados": estados,
         "congresso": congresso,
+        "financas": financas,
         "mapa": mapa,
         "municipios": municipios_dados,
         "catalogo": catalogo,

@@ -249,6 +249,23 @@
     margin-left: 8px;
     vertical-align: middle;
   }
+  .sit {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: 2px 9px;
+    white-space: nowrap;
+  }
+  .sit-eleito { background: #e3f4e8; color: #1e7e34; }
+  .sit-suplente { background: #e6eefb; color: #1f5fa8; }
+  .sit-nao { background: #f1f3f5; color: #6b7682; }
+  .sit-neutro { background: #f6efe0; color: #8a6d1a; }
+  table.tabela-rank { font-size: 13px; }
+  table.tabela-rank th, table.tabela-rank td { padding: 7px 9px; white-space: nowrap; }
+  table.tabela-rank td.rk-nome { white-space: normal; min-width: 140px; }
+  .rk-nome .nome { font-weight: 600; color: var(--texto); }
+  .rk-nome .sub { display: block; color: var(--suave); font-size: 11px; margin-top: 2px; }
   table.tabela {
     width: 100%;
     border-collapse: collapse;
@@ -1439,6 +1456,120 @@ function viewMapaUf(ufBruto, params) {
     <p class="dica">Passe o mouse (ou toque) em um município para ver <strong>votação e apuração</strong>; toque/clique de novo para abrir zonas e seções (${total} municípios neste mapa). ${voltar}</p>`;
 }
 
+/* ---------- Gastos de campanha (ranking) ---------- */
+
+const MOEDA_BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+let RANK_IDX = {};
+
+function moeda(v) { return MOEDA_BRL.format(Number(v) || 0); }
+
+function compacto(v) {
+  const n = Number(v) || 0;
+  const abs = Math.abs(n);
+  if (abs >= 1e9) return (n / 1e9).toFixed(1).replace(".", ",") + " bi";
+  if (abs >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + " mi";
+  if (abs >= 1e3) return (n / 1e3).toFixed(1).replace(".", ",") + " mil";
+  return fmt(Math.round(n));
+}
+
+function moedaCurta(v) { return "R$ " + compacto(v); }
+
+function situacaoClasse(s) {
+  const t = String(s || "").toUpperCase();
+  if (t.startsWith("ELEITO")) return "eleito";
+  if (t.startsWith("SUPLENTE")) return "suplente";
+  if (!t || t === "#NULO") return "neutro";
+  return "nao";
+}
+
+function viewRanking() {
+  const f = DADOS.financas;
+  if (!f || !(f.itens || []).length) {
+    return vazio("Sem dados de financiamento de campanha neste snapshot (gere com as finanças habilitadas).");
+  }
+  RANK_IDX = {};
+  (f.colunas || []).forEach((c, i) => { RANK_IDX[c] = i; });
+  const cargos = [...new Set(f.itens.map((r) => r[RANK_IDX.cargo]))].sort((a, b) => a - b);
+  const ufs = [...new Set(f.itens.map((r) => r[RANK_IDX.uf]))].filter(Boolean).sort();
+  return `<h2>Gastos de campanha — ranking</h2>
+    <p class="dica">Prestação de contas do TSE — arquivo de <strong>${esc(f.gerado_em || "—")}</strong>, em <strong>${f.parcial === false ? "final" : "parcial"}</strong> (os números crescem até a prestação final). Fundos = Fundo Partidário + FEFC; gasto = despesas pagas. Passe o mouse no valor para ver o número exato.</p>
+    <div class="filtros">
+      <select id="rk-escopo" onchange="atualizarRanking()">
+        <option value="">Brasil inteiro</option>
+        ${ufs.map((u) => `<option value="${esc(u)}">${esc(u)}</option>`).join("")}
+      </select>
+      <select id="rk-cargo" onchange="atualizarRanking()">
+        <option value="">Todos os cargos</option>
+        ${cargos.map((c) => `<option value="${c}">${esc(DADOS.cargos[c] || c)}</option>`).join("")}
+      </select>
+      <select id="rk-ordem" onchange="atualizarRanking()">
+        <option value="gasto">Maior gasto</option>
+        <option value="receita">Maior receita</option>
+        <option value="fundos">Mais fundos (FP+FEFC)</option>
+        <option value="bens">Maior patrimônio</option>
+        <option value="votos">Mais votos</option>
+        <option value="custovoto">Maior custo por voto</option>
+      </select>
+      <input id="rk-busca" type="search" placeholder="Filtrar por nome ou número..." oninput="atualizarRanking()">
+      <span class="contagem" id="rk-cont"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="tabela tabela-rank"><thead><tr>
+        <th class="num">#</th><th>Candidato</th><th>Situação</th>
+        <th class="num">Receita</th><th class="num">Fundos</th><th class="num">Gasto</th><th class="num">Patrim.</th><th class="num">Votos</th><th class="num">R$/voto</th>
+      </tr></thead><tbody id="rk-corpo"></tbody></table>
+    </div>`;
+}
+
+function atualizarRanking() {
+  const f = DADOS.financas;
+  const corpo = $("#rk-corpo");
+  if (!f || !corpo) return;
+  const i = RANK_IDX;
+  const escopo = $("#rk-escopo").value;
+  const cargo = $("#rk-cargo").value;
+  const ordem = $("#rk-ordem").value;
+  const termo = normalizar($("#rk-busca").value.trim());
+  const linhas = f.itens.filter((r) => {
+    if (escopo && String(r[i.uf]) !== escopo) return false;
+    if (cargo && String(r[i.cargo]) !== cargo) return false;
+    if (termo && !normalizar(r[i.nome]).includes(termo) && String(r[i.nr]) !== termo) return false;
+    return true;
+  });
+  const chave = (r) => (ordem === "custovoto"
+    ? ((r[i.votos] || 0) > 0 ? (r[i.gasto] / r[i.votos]) : -1)
+    : (Number(r[i[ordem]]) || 0));
+  linhas.sort((a, b) => chave(b) - chave(a));
+  const LIMITE = 300;
+  const mostradas = linhas.slice(0, LIMITE);
+  $("#rk-cont").textContent = linhas.length + " candidato(s)" + (linhas.length > LIMITE ? " (mostrando os " + LIMITE + " primeiros)" : "");
+  corpo.innerHTML = mostradas.map((r, pos) => {
+    const uf = String(r[i.uf] || "");
+    const nr = String(r[i.nr] || "");
+    const rota = Number(r[i.cargo]) === 1
+      ? `#/candidato/brasil/br/1/${nr}`
+      : `#/candidato/estado/${uf.toLowerCase()}/${r[i.cargo]}/${nr}`;
+    const votos = Number(r[i.votos]) || 0;
+    const custo = votos > 0 ? moeda(r[i.gasto] / votos) : "—";
+    const subtitulo = [r[i.partido], uf, DADOS.cargos[r[i.cargo]] || r[i.cargo]].filter(Boolean).join(" • ");
+    return `<tr class="clicavel" onclick="location.hash='${rota}'">
+      <td class="num">${pos + 1}</td>
+      <td class="rk-nome"><span class="nome">${esc(r[i.nome])}</span><span class="sub">${esc(subtitulo)}</span></td>
+      <td><span class="sit sit-${situacaoClasse(r[i.sit])}">${esc(r[i.sit] || "—")}</span></td>
+      <td class="num" title="${moeda(r[i.receita])}">${moedaCurta(r[i.receita])}</td>
+      <td class="num" title="${moeda(r[i.fundos])}">${moedaCurta(r[i.fundos])}</td>
+      <td class="num" title="${moeda(r[i.gasto])}">${moedaCurta(r[i.gasto])}</td>
+      <td class="num" title="${moeda(r[i.bens])}">${moedaCurta(r[i.bens])}</td>
+      <td class="num" title="${fmt(votos)}">${compacto(votos)}</td>
+      <td class="num">${custo}</td>
+    </tr>`;
+  }).join("");
+}
+
+function ligarRanking() {
+  if ($("#rk-corpo")) atualizarRanking();
+}
+
 /* ---------- Views ---------- */
 
 function viewHome() {
@@ -1463,6 +1594,10 @@ function viewHome() {
     <div class="card-nivel" onclick="location.hash='#/congresso'">
       <div class="icone">🏛️</div><h3>Congresso</h3>
       <p>Câmara, Senado (novos x antigos), assembleias estaduais e distrital — por partido.</p>
+    </div>
+    <div class="card-nivel" onclick="location.hash='#/ranking'">
+      <div class="icone">💰</div><h3>Gastos de campanha</h3>
+      <p>Receita, fundos (Fundo Partidário + FEFC), gasto pago, patrimônio, votos e custo por voto — por Brasil ou estado.</p>
     </div>
   </div>
   <div class="busca">
@@ -1803,6 +1938,9 @@ function render() {
   } else if (partes[0] === "congresso") {
     html = viewCongresso(params.get("casa") || "camara", params.get("uf") || "");
     trilha.push({ nome: "Congresso" });
+  } else if (partes[0] === "ranking") {
+    html = viewRanking();
+    trilha.push({ nome: "Gastos de campanha" });
   } else if (partes[0] === "municipio" && partes[1] && partes[2]) {
     const uf = partes[1], codigo = partes[2];
     const infoCat = catalogoInfo(uf, codigo);
@@ -1852,6 +1990,7 @@ function render() {
   $("#app").innerHTML = html;
   ligarBusca();
   ligarMapa();
+  ligarRanking();
   window.scrollTo(0, 0);
 }
 

@@ -4,6 +4,7 @@ from eleitor.models import Candidato, ResultadoCargo, Totalizacao, TotaisVotos
 from eleitor.render.html import render_html
 from eleitor.services.snapshot import (
     _cand_dict,
+    _financas_dict,
     _res_dict,
     _resumo_proporcional,
     _secoes_dict,
@@ -211,3 +212,76 @@ def test_render_html_candidatos_ordenados_por_votos():
     res = _resultado_exemplo()
     votos = [c.votos for c in res.candidatos]
     assert votos == sorted(votos, reverse=True)
+
+
+def test_financas_dict_compacta_e_anexa_votos():
+    bake = {
+        "gerado_em": "17/10/2026 04:05:37",
+        "itens": [
+            {
+                "sq": "280002551544",
+                "nr": "22",
+                "nome": "FLAVIO BOLSONARO",
+                "partido": "PL",
+                "uf": "BR",
+                "cargo": 1,
+                "sit": "ELEITO",
+                "receita": 88952028.52,
+                "fundos": 60701241.0,
+                "gasto": 67556449.4,
+                "bens": 8186555.83,
+            }
+        ],
+    }
+    dados = _financas_dict(bake, {"280002551544": 1234567})
+    assert dados["gerado_em"] == "17/10/2026 04:05:37"
+    assert dados["parcial"] is True
+    assert dados["colunas"] == [
+        "nome", "partido", "uf", "cargo", "sit", "nr",
+        "receita", "fundos", "gasto", "bens", "votos",
+    ]
+    linha = dados["itens"][0]
+    assert linha[dados["colunas"].index("nome")] == "FLAVIO BOLSONARO"
+    assert linha[dados["colunas"].index("votos")] == 1234567
+    assert linha[dados["colunas"].index("gasto")] == 67556449.4
+
+
+def test_render_html_tem_aba_de_gastos():
+    dados = {
+        "gerado_em": "04/10/2026 18:00",
+        "cargos": {"1": "Presidente"},
+        "brasil": _res_dict(_resultado_exemplo()),
+        "estados": [],
+        "congresso": {},
+        "financas": _financas_dict(
+            {
+                "gerado_em": "17/10/2026 04:05:37",
+                "itens": [
+                    {
+                        "sq": "1",
+                        "nr": "22",
+                        "nome": "FLAVIO BOLSONARO",
+                        "partido": "PL",
+                        "uf": "BR",
+                        "cargo": 1,
+                        "sit": "ELEITO",
+                        "receita": 1.0,
+                        "fundos": 2.0,
+                        "gasto": 3.0,
+                        "bens": 4.0,
+                    }
+                ],
+            },
+            {"1": 500},
+        ),
+        "municipios": [],
+        "catalogo": [],
+    }
+    html = render_html(dados)
+    assert "viewRanking" in html
+    assert "atualizarRanking" in html
+    assert "Gastos de campanha" in html
+    assert "#/ranking" in html
+    payload = html.split("const DADOS = ", 1)[1].split(";\n", 1)[0]
+    decodificado = json.loads(payload)
+    assert decodificado["financas"]["itens"][0][0] == "FLAVIO BOLSONARO"

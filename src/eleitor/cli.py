@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -80,6 +81,10 @@ def fmt_int(valor: int) -> str:
 
 def pct(valor: float) -> str:
     return f"{valor:.2f}%".replace(".", ",")
+
+
+def fmt_moeda(valor: float) -> str:
+    return "R$ " + f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
 def render_resultado(res: ResultadoCargo, titulo: str, limite: int = 25) -> None:
@@ -264,6 +269,47 @@ def render_governadores(itens: list[tuple[str, ResultadoCargo | None]]) -> None:
             "[bold green]sim[/bold green]" if lider.eleito else "—",
         )
     console.print(table)
+
+
+def render_financas(dados: dict, limite: int = 30) -> None:
+    itens = dados.get("itens", [])
+    cabecalho = (
+        "[bold]Finanças de campanha — ranking[/bold]\n"
+        f"{dados.get('total', 0)} candidato(s) com movimento de campanha • "
+        f"arquivo do TSE gerado em {dados.get('gerado_em') or '—'} (parcial)"
+    )
+    console.print(Panel(cabecalho, expand=False))
+
+    table = Table(box=box.SIMPLE_HEAVY, header_style="bold")
+    table.add_column("#", justify="right")
+    table.add_column("Candidato")
+    table.add_column("Partido")
+    table.add_column("UF", justify="center")
+    table.add_column("Cargo")
+    table.add_column("Receita", justify="right")
+    table.add_column("Fundos", justify="right")
+    table.add_column("Gasto", justify="right")
+    table.add_column("Patrimônio", justify="right")
+    table.add_column("Situação")
+
+    for pos, item in enumerate(itens[:limite], start=1):
+        estilo = "bold green" if (item.get("sit") or "").upper().startswith("ELEITO") else None
+        table.add_row(
+            str(pos),
+            item.get("nome", ""),
+            item.get("partido", ""),
+            item.get("uf", ""),
+            CARGO_NOMES.get(item.get("cargo"), str(item.get("cargo", ""))),
+            fmt_moeda(item.get("receita", 0.0)),
+            fmt_moeda(item.get("fundos", 0.0)),
+            fmt_moeda(item.get("gasto", 0.0)),
+            fmt_moeda(item.get("bens", 0.0)),
+            item.get("sit") or "—",
+            style=estilo,
+        )
+    console.print(table)
+    if len(itens) > limite:
+        console.print(f"[dim]{len(itens) - limite} candidato(s) omitido(s) (use --limite 0 para todos).[/dim]")
 
 
 def exibir_governadores(client: CachedClient, turno: int) -> None:
@@ -456,12 +502,13 @@ def menu(client: CachedClient) -> None:
                 "4. Votos de uma seção (boletim de urna)\n"
                 "5. Votos por seção de uma zona inteira\n"
                 "6. Gerar HTML offline (snapshot estilo TSE)\n"
+                "7. Ranking de gastos de campanha (prestação de contas)\n"
                 "0. Sair",
                 title="Menu",
                 expand=False,
             )
         )
-        opcao = Prompt.ask("Opção", choices=["1", "2", "3", "4", "5", "6", "0"], default="1")
+        opcao = Prompt.ask("Opção", choices=["1", "2", "3", "4", "5", "6", "7", "0"], default="1")
 
         if opcao == "0":
             return
@@ -572,9 +619,21 @@ def menu(client: CachedClient) -> None:
                 sem_mapa=False,
                 mapa_municipios="br",
                 refazer_mapa=False,
+                sem_financas=False,
+                refazer_financas=False,
             )
             try:
                 cmd_html(client, args_html)
+            except (TTSError, RateLimited) as exc:
+                console.print(f"[red]{exc}[/red]")
+            Prompt.ask("[dim]Enter para voltar ao menu[/dim]", default="")
+
+        elif opcao == "7":
+            try:
+                cmd_financas(
+                    client,
+                    argparse.Namespace(cargo=None, uf=None, ordenar="gasto", limite=30, out=None, refazer=False),
+                )
             except (TTSError, RateLimited) as exc:
                 console.print(f"[red]{exc}[/red]")
             Prompt.ask("[dim]Enter para voltar ao menu[/dim]", default="")
@@ -726,6 +785,41 @@ def cmd_mapa(client: CachedClient, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_financas(client: CachedClient, args: argparse.Namespace) -> int:
+    """Ranking de gastos/arrecadação de campanha (prestação de contas do TSE)."""
+
+    from eleitor.services.financas import bake_financas
+
+    dados = bake_financas(
+        forcar=args.refazer,
+        progresso=lambda msg: console.print(f"[dim]{msg}[/dim]"),
+    )
+    itens = list(dados.get("itens", []))
+    if args.cargo is not None:
+        itens = [item for item in itens if item.get("cargo") == args.cargo]
+    if args.uf:
+        itens = [item for item in itens if item.get("uf") == args.uf.upper()]
+    campo = args.ordenar
+    itens.sort(key=lambda item: item.get(campo, 0) or 0, reverse=True)
+
+    if args.out:
+        destino = Path(args.out)
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_text(
+            json.dumps(
+                {"ano": dados.get("ano"), "gerado_em": dados.get("gerado_em"), "itens": itens},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+        console.print(f"[green]Ranking gravado:[/green] {destino} ({len(itens)} candidato(s))")
+
+    limite = len(itens) if args.limite == 0 else args.limite
+    render_financas({"total": len(itens), "gerado_em": dados.get("gerado_em"), "itens": itens}, limite=limite)
+    return 0
+
+
 def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
     from eleitor.render.html import render_html
     from eleitor.services.snapshot import coletar_snapshot
@@ -759,6 +853,8 @@ def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
             com_mapa=not args.sem_mapa,
             com_mapa_municipios=ufs_mapa,
             refazer_mapa=args.refazer_mapa,
+            com_financas=not args.sem_financas,
+            refazer_financas=args.refazer_financas,
             progresso=progresso,
         )
     html = render_html(dados)
@@ -852,6 +948,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="ignora o cache do líder por município e baixa tudo de novo",
     )
+    p_html.add_argument(
+        "--sem-financas",
+        action="store_true",
+        help="não incluir o ranking de gastos de campanha (prestação de contas)",
+    )
+    p_html.add_argument(
+        "--refazer-financas",
+        action="store_true",
+        help="ignora o cache das contas do TSE e lê os arquivos de novo",
+    )
     p_html.set_defaults(func=cmd_html)
 
     p_mapa = sub.add_parser("mapa", help="calcula o líder por município para o mapa (cache)")
@@ -873,6 +979,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_mapa.add_argument("--mapa-municipios", default="br", metavar="br|UFS", help="br (padrão) ou lista de UFs")
     p_mapa.add_argument("--refazer", action="store_true", help="ignora o cache e baixa de novo")
     p_mapa.set_defaults(func=cmd_mapa)
+
+    p_fin = sub.add_parser("financas", help="ranking de gastos de campanha (prestação de contas do TSE)")
+    p_fin.add_argument("--cargo", type=parse_cargo, default=None, help="filtra por cargo")
+    p_fin.add_argument("--uf", help="filtra por UF (ex: PA)")
+    p_fin.add_argument("--ordenar", choices=["gasto", "receita", "fundos", "bens"], default="gasto")
+    p_fin.add_argument("--limite", type=int, default=30, help="0 = todos")
+    p_fin.add_argument("--out", help="grava o ranking em JSON")
+    p_fin.add_argument("--refazer", action="store_true", help="ignora o cache das contas e lê tudo de novo")
+    p_fin.set_defaults(func=cmd_financas)
 
     for parser_ in (p_html, p_mapa):
         parser_.add_argument(
@@ -931,9 +1046,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    ritmo = getattr(args, "ritmo", None)
+    workers = getattr(args, "workers", None)
     with CachedClient(
-        min_interval=args.ritmo if args.ritmo is not None else DEFAULT_MIN_INTERVAL,
-        workers=args.workers or 4,
+        min_interval=ritmo if ritmo is not None else DEFAULT_MIN_INTERVAL,
+        workers=workers or 4,
     ) as client:
         if args.comando is None:
             try:
