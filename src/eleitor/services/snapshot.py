@@ -356,6 +356,9 @@ def coletar_snapshot(
     municipios: list[Municipio],
     com_fotos: bool = True,
     com_secoes: bool = True,
+    com_mapa: bool = True,
+    com_mapa_municipios: list[str] | None = None,
+    refazer_mapa: bool = False,
     progresso: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     def aviso(msg: str) -> None:
@@ -370,6 +373,27 @@ def coletar_snapshot(
 
     aviso("Congresso — agregando Câmara, Senado e assembleias...")
     congresso = _coletar_congresso(estados, progresso)
+
+    mapa: dict[str, Any] | None = None
+    if com_mapa:
+        from eleitor.services.mapa import (
+            coletar_mapa,
+            coletar_mapa_municipios,
+            combos_com_dados,
+        )
+
+        mapa = coletar_mapa(client, estados, brasil, progresso=progresso)
+        if mapa and com_mapa_municipios:
+            mapa.update(
+                coletar_mapa_municipios(
+                    client,
+                    loc,
+                    combos_com_dados(mapa),
+                    ufs=com_mapa_municipios,
+                    progresso=progresso,
+                    refazer=refazer_mapa,
+                )
+            )
 
     municipios_dados: list[dict[str, Any]] = []
     for municipio in municipios:
@@ -389,6 +413,7 @@ def coletar_snapshot(
         "brasil": brasil,
         "estados": estados,
         "congresso": congresso,
+        "mapa": mapa,
         "municipios": municipios_dados,
         "catalogo": catalogo,
     }

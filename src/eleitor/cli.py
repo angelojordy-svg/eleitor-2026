@@ -19,7 +19,7 @@ from eleitor.config import (
     SEGUNDO_TURNO,
     TTL_LIVE,
 )
-from eleitor.http import CachedClient, RateLimited, TTSError
+from eleitor.http import DEFAULT_MIN_INTERVAL, CachedClient, RateLimited, TTSError
 from eleitor.models import Municipio, ResultadoCargo, ZonaSecoes
 from eleitor.services.localidades import Localidades
 from eleitor.services.votos import (
@@ -569,6 +569,9 @@ def menu(client: CachedClient) -> None:
                 out=saida,
                 sem_fotos=not fotos,
                 sem_secoes=not secoes_html,
+                sem_mapa=False,
+                mapa_municipios="br",
+                refazer_mapa=False,
             )
             try:
                 cmd_html(client, args_html)
@@ -661,6 +664,68 @@ def cmd_municipios(client: CachedClient, args: argparse.Namespace) -> int:
     return 0
 
 
+def _ufs_do_mapa(valor: str | None) -> list[str] | None:
+    """'br' = Brasil inteiro, 'none' = desligado, 'pa,mg' = só esses."""
+
+    from eleitor.config import UF_SIGLAS
+
+    alvo = (valor or "br").strip().lower()
+    if alvo in ("none", "nenhum", "off", "nao", "não", ""):
+        return None
+    if alvo in ("br", "brasil", "tudo", "all", "*"):
+        return [u.lower() for u in UF_SIGLAS if u != "ZZ"]
+    pedidas = [p.strip().lower() for p in alvo.split(",") if p.strip()]
+    validas = {u.lower() for u in UF_SIGLAS if u != "ZZ"}
+    invalidas = [u for u in pedidas if u not in validas]
+    if invalidas:
+        raise argparse.ArgumentTypeError(f"UF inválida em --mapa-municipios: {', '.join(invalidas)}")
+    return pedidas
+
+
+def cmd_mapa(client: CachedClient, args: argparse.Namespace) -> int:
+    """Calcula (e guarda em cache) o líder por município para o mapa."""
+
+    from eleitor.config import CARGO_NOMES, SEGUNDO_TURNO
+    from eleitor.services.localidades import Localidades
+    from eleitor.services.mapa import bake_resultado_municipios
+
+    loc = Localidades(client)
+    ufs = _ufs_do_mapa(args.mapa_municipios) or []
+    if not ufs:
+        console.print("[yellow]Nenhuma UF selecionada.[/yellow]")
+        return 1
+
+    combos: list[tuple[str, str]] = []
+    for cargo in args.cargo or [3, 1]:
+        for turno in args.turno or [1, 2]:
+            eleicao = 6257 if cargo == 1 else 6259
+            if turno == 2:
+                if eleicao not in SEGUNDO_TURNO:
+                    continue
+                eleicao = SEGUNDO_TURNO[eleicao]
+            combos.append((str(cargo), str(turno)))
+
+    for cargo, turno in combos:
+        with console.status(
+            f"Baixando {CARGO_NOMES.get(int(cargo), cargo)} — {turno}º turno ({len(ufs)} UF(s))..."
+        ):
+            resultado = bake_resultado_municipios(
+                client,
+                loc,
+                cargo,
+                turno,
+                ufs,
+                progresso=lambda msg: console.print(f"[dim]{msg}[/dim]"),
+                refazer=args.refazer,
+            )
+        com_dados = sum(len(v) for v in resultado.values())
+        console.print(
+            f"[green]{CARGO_NOMES.get(int(cargo), cargo)} — {turno}º turno:[/green] "
+            f"{com_dados} município(s) com votos em {len(resultado)} UF(s)."
+        )
+    return 0
+
+
 def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
     from eleitor.render.html import render_html
     from eleitor.services.snapshot import coletar_snapshot
@@ -675,6 +740,12 @@ def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
             return 1
         municipios.append(municipio)
 
+    try:
+        ufs_mapa = _ufs_do_mapa(args.mapa_municipios)
+    except argparse.ArgumentTypeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return 1
+
     def progresso(msg: str) -> None:
         console.print(f"[dim]{msg}[/dim]")
 
@@ -685,6 +756,9 @@ def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
             municipios,
             com_fotos=not args.sem_fotos,
             com_secoes=not args.sem_secoes,
+            com_mapa=not args.sem_mapa,
+            com_mapa_municipios=ufs_mapa,
+            refazer_mapa=args.refazer_mapa,
             progresso=progresso,
         )
     html = render_html(dados)
@@ -766,7 +840,51 @@ def build_parser() -> argparse.ArgumentParser:
     p_html.add_argument("--out", default="resultado-2026.html", help="arquivo de saída")
     p_html.add_argument("--sem-fotos", action="store_true", help="não embutir fotos (arquivo menor)")
     p_html.add_argument("--sem-secoes", action="store_true", help="não incluir votos por seção (BU)")
+    p_html.add_argument("--sem-mapa", action="store_true", help="não embutir o mapa do Brasil (estados)")
+    p_html.add_argument(
+        "--mapa-municipios",
+        default="br",
+        metavar="br|UFS|none",
+        help="municípios no mapa: br (todos, padrão), pa,mg ou none",
+    )
+    p_html.add_argument(
+        "--refazer-mapa",
+        action="store_true",
+        help="ignora o cache do líder por município e baixa tudo de novo",
+    )
     p_html.set_defaults(func=cmd_html)
+
+    p_mapa = sub.add_parser("mapa", help="calcula o líder por município para o mapa (cache)")
+    p_mapa.add_argument(
+        "--cargo",
+        type=parse_cargo,
+        action="append",
+        default=None,
+        help="cargo (pode repetir); padrão: governador e presidente",
+    )
+    p_mapa.add_argument(
+        "--turno",
+        type=int,
+        choices=[1, 2],
+        action="append",
+        default=None,
+        help="turno (pode repetir); padrão: 1 e 2",
+    )
+    p_mapa.add_argument("--mapa-municipios", default="br", metavar="br|UFS", help="br (padrão) ou lista de UFs")
+    p_mapa.add_argument("--refazer", action="store_true", help="ignora o cache e baixa de novo")
+    p_mapa.set_defaults(func=cmd_mapa)
+
+    for parser_ in (p_html, p_mapa):
+        parser_.add_argument(
+            "--ritmo",
+            type=float,
+            default=None,
+            metavar="SEG",
+            help="intervalo mínimo entre requisições (padrão 0,15; use 0.04 para o bake nacional)",
+        )
+        parser_.add_argument(
+            "--workers", type=int, default=None, help="requisições simultâneas (padrão 4)"
+        )
 
     p_sec = sub.add_parser("secoes", help="seções/urnas de um município")
     p_sec.add_argument("municipio")
@@ -813,7 +931,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    with CachedClient() as client:
+    with CachedClient(
+        min_interval=args.ritmo if args.ritmo is not None else DEFAULT_MIN_INTERVAL,
+        workers=args.workers or 4,
+    ) as client:
         if args.comando is None:
             try:
                 menu(client)

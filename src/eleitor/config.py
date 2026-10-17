@@ -68,7 +68,52 @@ UF_NOMES = {
     "ZZ": "Exterior",
 }
 
+# Código IBGE da UF (usado nas malhas do IBGE) -> sigla.
+IBGE_UF_CODIGO = {
+    "11": "RO",
+    "12": "AC",
+    "13": "AM",
+    "14": "RR",
+    "15": "PA",
+    "16": "AP",
+    "17": "TO",
+    "21": "MA",
+    "22": "PI",
+    "23": "CE",
+    "24": "RN",
+    "25": "PB",
+    "26": "PE",
+    "27": "AL",
+    "28": "SE",
+    "29": "BA",
+    "31": "MG",
+    "32": "ES",
+    "33": "RJ",
+    "35": "SP",
+    "41": "PR",
+    "42": "SC",
+    "43": "RS",
+    "50": "MS",
+    "51": "MT",
+    "52": "GO",
+    "53": "DF",
+}
+
+# Cargos majoritários (um vencedor por recorte) que fazem sentido no mapa.
+CARGOS_MAPA = (1, 3)
+
+# Faixa de força da maioria usada no degradê do mapa: 30% -> tom claro,
+# 70% ou mais -> tom cheio do partido. Fixa para o mapa continuar
+# comparável enquanto a apuração do 2º turno avança.
+MAPA_ESCALA = (30.0, 70.0)
+MAPA_LARGURA = 1000
+MAPA_ALTURA = 1000
+
 TTL_LIVE = 10.0
 TTL_CONFIG = 300.0
 TTL_SECOES = 60.0
 TTL_AUX = 120.0
+# Bake do líder por município: 1º turno já é definitivo (reusa por 24h),
+# 2º turno é ao vivo (revalida sempre).
+TTL_MAPA_RES = 86400.0
+TTL_MAPA_RES_2T = 60.0

@@ -16,6 +16,12 @@ No próprio site, o botão **"Atualizar online"** atualiza os totais na hora (Br
 estados, municípios e zonas) sem republicar.
 
 O site tem ainda:
+- **Mapa do Brasil**: Governador e Presidente por estado **e por município** (clique no
+  estado para abrir o mapa municipal), colorido pelo **partido mais votado** com
+  intensidade pelo **tamanho da maioria** (% do líder sobre os votos válidos, escala
+  fixa 30% → 70%+), com alternador de **1º/2º turno**. No 2º turno os estados em
+  disputa aparecem com contorno tracejado antes da apuração. Todos os 5.571 municípios
+  vêm embutidos (funciona offline).
 - **Busca ao vivo**: qualquer município do Brasil (ex.: Niterói, Rio de Janeiro) é
   buscado na hora no TSE (Brasil, estado, município e zonas). Votos por seção/urna
   ficam disponíveis apenas para os municípios embutidos no arquivo.
@@ -71,8 +77,24 @@ por candidato naquela urna. As especificações ASN.1 usadas estão em
 `src/eleitor/spec/` (documentação pública do TSE, via projeto MIT `doccaz/urnas-br`).
 
 O comando `html` gera um artefato único offline (snapshot estilo site do TSE) com
-Brasil, 27 estados e os municípios informados, incluindo navegação por zona e
-seção e página de candidato. Flags: `--sem-fotos`, `--sem-secoes`.
+Brasil, 27 estados, o mapa do Brasil (estados e municípios) e os municípios informados,
+incluindo navegação por zona e seção e página de candidato. Flags: `--sem-fotos`,
+`--sem-secoes`, `--sem-mapa`, `--mapa-municipios br|UF,UF|none`, `--refazer-mapa`,
+`--ritmo` e `--workers`.
+
+O primeiro `html` com o mapa nacional baixa o líder por município dos 5.571 municípios
+(~11 mil requisições; ~8 min com `--ritmo 0.04 --workers 10`). O cálculo fica em cache
+em `%LOCALAPPDATA%\eleitor\mapa` e é **retomável**: se for interrompido, a próxima
+execução continua de onde parou. Para recalcular antes do prazo (ex.: durante o 2º
+turno) use `--refazer-mapa`, ou apenas rode:
+
+```powershell
+.venv\Scripts\eleitor mapa --cargo governador --turno 1 --ritmo 0.04 --workers 10
+```
+
+A geometria do mapa vem do IBGE (malhas) e é baixada uma única vez para
+`%LOCALAPPDATA%\eleitor\geo` (pode ser alterada com `ELEITOR_GEO_DIR`); depois o mapa
+é gerado offline sem novas consultas.
 
 O artefato tem o botão **"Atualizar online"** no topo: com internet, busca os
 resultados mais recentes direto do TSE (Brasil, estados, municípios e zonas) sem

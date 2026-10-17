@@ -18,6 +18,7 @@ python -m venv .venv
 .venv\Scripts\eleitor votos Parauapebas --uf pa --zona 75 --cargo governador
 .venv\Scripts\eleitor governadores --watch 60      # todos os governadores do Brasil
 .venv\Scripts\eleitor html --municipio Ananindeua/PA --out resultado-2026.html
+.venv\Scripts\eleitor mapa --cargo governador --turno 1 --ritmo 0.04 --workers 10   # bake do mapa
 .venv\Scripts\eleitor selftest                     # smoke test com a API real
 ```
 
@@ -27,7 +28,15 @@ python -m venv .venv
 - `sources/resultados.py` — builders de URL + parsers EA12/EA16/EA20.
 - `sources/bu.py` — parser do boletim de urna (ASN.1 BER, specs em `spec/`, tenta v2 depois v1).
 - `sources/urna.py` — nomes/URLs de arquivos de urna (aux -> hash -> BU).
-- `services/snapshot.py` — coleta dados para o HTML offline (Brasil, estados, municípios, seções, fotos).
+- `sources/geo.py` — malhas do IBGE (retry/backoff, cache em `%LOCALAPPDATA%\eleitor\geo`),
+  projeção Albers e conversão da malha em paths SVG (`geo_para_paths`).
+- `services/mapa.py` — resumo por UF para o mapa: partido do mais votado + força da maioria.
+  Também faz o **bake do líder por município** (`bake_resultado_municipios`), com cache
+  retomável em `%LOCALAPPDATA%\eleitor\mapa\res-{cargo}-t{turno}.json` (só grava `completo`
+  no fim; um bake interrompido continua de onde parou). Resultados saem como vetores
+  alinhados por índice com a geometria, para não repetir a chave do município no payload.
+- `services/snapshot.py` — coleta dados para o HTML offline (Brasil, estados, municípios, seções, fotos, mapa,
+  geometria municipal e líder por município).
 - `render/` — `html.py` + `template.html` (artefato único, navegação por hash, página de candidato,
   botão "Atualizar online" que busca EA20 do TSE via fetch/CORS quando há internet).
 - `services/` — busca de município (EA12) e orquestração de votos/seções.
@@ -49,7 +58,27 @@ python -m venv .venv
   (município 5, zona/seção 4, cargo 4, eleição/pleito 6). Nunca varrer IDs no chute.
 - CSVs do TSE (fase candidatos/bens, ainda não implementada): ISO-8859-1, separador `;`.
 
+## Fatos do IBGE (mapa)
+- Malha das UFs: `https://servicodados.ibge.gov.br/api/v3/malhas/paises/BR?formato=application/vnd.geo+json&qualidade=minima&intrarregiao=UF`
+  (27 feições; `properties.codarea` = **código IBGE da UF**, 2 dígitos — tabela `IBGE_UF_CODIGO` no `config.py`).
+  Custa ~96 KB e é a única consulta que o mapa de estados precisa.
+- Malha dos municípios de uma UF: `.../malhas/estados/{UF}?...&intrarregiao=municipio`
+  (`codarea` = 7 dígitos, **igual ao campo `cdi`/`Municipio.ibge` do EA12** — é a chave do join).
+  Brasil inteiro em uma chamada: ~3,4 MB (mínima) / 11,7 MB (intermediária). Município individual: `.../malhas/municipios/{cdi}`.
+- O IBGE **devolve 404 espúrio quando recebe requisições em rajada** (volta ao normal depois); por isso
+  `sources/geo.py` só grava 200 no cache e repete com espera crescente. CORS é liberado (`Access-Control-Allow-Origin: *`).
+- Resultado por município (para colorir) = EA20 por município (`{uf}{mun:05d}`), 1 requisição por município/cargo/turno.
+- `paths_municipios(uf)` projeta **cada estado no próprio quadro 1000×1000** (mapa municipal enche a tela);
+  por isso a geometria municipal final (~1,6 MB) é maior que a soma das malhas cruas simplificadas em um quadro só.
+- Custo do mapa nacional embutido (medido): artefato 6,55 → 8,54 MB (geometria municipal 1,6 MB + líder por
+  município 0,4 MB para 2 combos). O `bake` do 1º turno é definitivo (TTL 24 h); o do 2º turno só roda quando
+  a apuração começa (`combos_com_dados`) e revalida sempre.
+- Boa Esperança do Norte/MT (IBGE 5101837) é novo e ainda não tem malha no IBGE: fica fora do mapa municipal.
+
 ## Estado atual
-Implementado: resultados ao vivo (BR/UF/município/zona), seções com status via EA18, votos por seção via BU.
+Implementado: resultados ao vivo (BR/UF/município/zona), seções com status via EA18, votos por seção via BU,
+artefato HTML offline (Brasil/estados/municípios/seções/congresso) e **mapa do Brasil** com estados e
+**municípios dos 5.571 municípios** (Governador e Presidente, 1º e 2º turno, cor pelo mais votado +
+intensidade pela maioria).
 Pendente: módulo de candidatos/bens (CSV `consulta_cand_2026.zip`/`bem_candidato_2026.zip`), finanças,
 dashboard web. Dados de produção podem ficar zerados até a totalização avançar; use `selftest`.

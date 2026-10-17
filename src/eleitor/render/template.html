@@ -311,6 +311,24 @@
   .legenda .obs { color: var(--suave); font-size: 12px; }
   .fonte { max-width: 1180px; margin: 0 auto; padding: 0 22px 26px; color: var(--suave); font-size: 12px; }
   .dica { color: var(--suave); font-size: 13px; margin: 10px 0 0; }
+  .mapa-wrap { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(270px, 1fr); gap: 18px; align-items: start; }
+  .mapa-wrap > * { min-width: 0; }
+  .mapa-caixa { background: var(--card); border: 1px solid #dde5ee; border-radius: 12px; padding: 10px; }
+  svg.mapa-br { width: 100%; height: auto; display: block; }
+  svg.mapa-br path.uf { stroke: #fff; stroke-width: .8; cursor: pointer; }
+  svg.mapa-br path.uf:hover { stroke: var(--azul); stroke-width: 1.8; }
+  svg.mapa-br path.uf.em-disputa { stroke: #93a8bf; stroke-dasharray: 4 3; }
+  .mapa-lado h3 { margin-top: 0; }
+  .chip-forca { display: inline-flex; gap: 2px; margin-right: 8px; vertical-align: middle; }
+  .chip-forca i { width: 10px; height: 14px; display: block; border-radius: 2px; }
+  .barra-forca { height: 12px; border-radius: 999px; background: linear-gradient(90deg, #e6ecf3, #93a4b8, #4b5c70); margin: 8px 0 4px; }
+  .barra-forca-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--suave); }
+  .legenda-mapa { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
+  .legenda-mapa .linha { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .legenda-mapa .linha .n { margin-left: auto; color: var(--suave); font-size: 12px; }
+  @media (max-width: 900px) {
+    .mapa-wrap { grid-template-columns: 1fr; }
+  }
   @media (max-width: 640px) {
     main { padding: 14px; }
     .cand { flex-direction: column; align-items: flex-start; }
@@ -333,6 +351,16 @@
 
 <script>
 const DADOS = /*__DADOS__*/;
+
+window.onerror = function (msg, fonte, linha, coluna) {
+  const alvo = document.getElementById("app");
+  if (alvo && !alvo.innerHTML) {
+    alvo.innerHTML = '<div class="painel"><h2>Falha ao desenhar esta tela</h2>' +
+      '<div class="linha-info">' + String(msg) + ' (linha ' + linha + ')</div>' +
+      '<p class="dica">Use "Limpar pesquisa" ou o menu inicial para continuar.</p></div>';
+  }
+  return false;
+};
 
 const $ = (sel) => document.querySelector(sel);
 const fmt = (n) => (n || 0).toLocaleString("pt-BR");
@@ -719,6 +747,251 @@ function municipioAtual(uf, codigo) {
 }
 
 
+/* ---------- Mapa do Brasil ---------- */
+/* Regra de cor: matiz = partido do mais votado; intensidade = tamanho da
+   maioria (percentual do líder sobre os votos válidos, escala fixa
+   30% = tom claro, 70% ou mais = tom cheio). Sem votos = cinza neutro. */
+
+const MAPA_CARGOS = ["3", "1"];
+const MAPA_CINZA = "#e3e8ee";
+const MAPA_DISPUTA = "#d6e0ec";
+
+function hexParaHsl(hex) {
+  const limpo = String(hex || "").replace("#", "");
+  if (limpo.length !== 6) return { h: 215, s: 20, l: 60 };
+  const r = parseInt(limpo.slice(0, 2), 16) / 255;
+  const g = parseInt(limpo.slice(2, 4), 16) / 255;
+  const b = parseInt(limpo.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  if (!d) return { h: 215, s: 0, l: l * 100 };
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return { h: h * 60, s: s * 100, l: l * 100 };
+}
+
+function forcaDaMaioria(share) {
+  const escala = (DADOS.mapa && DADOS.mapa.escala) || { min: 30, max: 70 };
+  const faixa = (escala.max - escala.min) || 40;
+  return Math.max(0, Math.min(1, ((share || 0) - escala.min) / faixa));
+}
+
+function corDoPartido(partido, share) {
+  const t = forcaDaMaioria(share);
+  const base = hexParaHsl(corPartido(partido));
+  const luz = (84 - 50 * t).toFixed(1);
+  const sat = (45 + 30 * t).toFixed(1);
+  const matiz = base.s < 6 ? 215 : base.h.toFixed(0);
+  return `hsl(${matiz} ${sat}% ${luz}%)`;
+}
+
+function nomeDaUf(uf) {
+  const est = (DADOS.estados || []).find((e) => e.uf === String(uf).toLowerCase());
+  return est ? est.nome : String(uf).toUpperCase();
+}
+
+function temVotos(topo) {
+  return !!(topo && topo[0] && topo[0][2] > 0);
+}
+
+let _nomesMunicipios = null;
+
+function nomeDoMunicipio(uf, codigo) {
+  if (!_nomesMunicipios) {
+    _nomesMunicipios = new Map();
+    for (const item of DADOS.catalogo || []) _nomesMunicipios.set(item[0] + item[1], item[2]);
+  }
+  return _nomesMunicipios.get(String(uf).toLowerCase() + codigo) || codigo;
+}
+
+function tituloDaArea(nome, topo) {
+  if (!temVotos(topo)) {
+    if (topo && topo[0] && topo[1]) {
+      return `${nome} — sem votos apurados ainda (2º turno: ${topo[0][3]} x ${topo[1][3]})`;
+    }
+    return `${nome} — sem votos apurados`;
+  }
+  const [p, share, votos, cand] = topo[0];
+  let texto = `${nome} — ${cand} (${p}): ${fmt(votos)} votos, ${pct(share)} dos válidos`;
+  if (topo[1]) texto += ` • 2º: ${topo[1][3]} (${topo[1][0]}) ${pct(topo[1][1])}`;
+  return texto;
+}
+
+/* Resolve cargo/turno válidos e monta as abas, para o mapa do Brasil e o
+   mapa de um estado usarem o mesmo recorte. */
+function recorteDoMapa(params, base) {
+  const m = DADOS.mapa || {};
+  const cargos = MAPA_CARGOS.filter((cg) => (m.res || {})[cg] || (m.munres || {})[cg]);
+  let cargo = params.get("cargo");
+  if (!cargo || cargos.indexOf(cargo) < 0) cargo = cargos[0];
+  const porTurno = (m.res || {})[cargo] || (m.munres || {})[cargo] || {};
+  let turno = params.get("turno");
+  if (!turno || !porTurno[turno]) turno = Object.keys(porTurno)[0] || "1";
+  const abasCargo = cargos.map((cg) =>
+    `<button class="${cg === cargo ? "ativa" : ""}" onclick="location.hash='${base}?cargo=${cg}&turno=${turno}'">${esc(DADOS.cargos[cg] || cg)}</button>`
+  ).join("");
+  const abasTurno = Object.keys(porTurno).sort().map((t) =>
+    `<button class="${t === turno ? "ativa" : ""}" onclick="location.hash='${base}?cargo=${cargo}&turno=${t}'">${t === "2" ? "2º turno" : "1º turno"}</button>`
+  ).join("");
+  return { cargo: cargo, turno: turno, porTurno: porTurno, abasCargo: abasCargo, abasTurno: abasTurno };
+}
+
+function linhaDoNacional(cargo, turno) {
+  const nacional = (((DADOS.mapa || {}).brasil || {})[cargo] || {})[turno] || null;
+  if (!nacional || !nacional[0]) return "";
+  const [pNac, shareNac, , nomeNac] = nacional[0];
+  const segundo = nacional[1];
+  return `<p class="dica"><strong>Brasil:</strong> ${esc(nomeNac)} (${esc(pNac)})${
+    shareNac ? " " + pct(shareNac) + " dos votos válidos" : " — apuração ainda não começou"
+  }${segundo && shareNac ? " • 2º: " + esc(segundo[3]) + " (" + esc(segundo[0]) + ") " + pct(segundo[1]) : ""}</p>`;
+}
+
+function legendaDeMapa(tops, totalUnidades, rotulo) {
+  const contagem = {};
+  let comVotos = 0;
+  for (const topo of tops) {
+    if (!temVotos(topo)) continue;
+    comVotos += 1;
+    contagem[topo[0][0]] = (contagem[topo[0][0]] || 0) + 1;
+  }
+  const linhas = Object.entries(contagem)
+    .sort((a, b) => b[1] - a[1])
+    .map(([p, n]) => {
+      const tons = [0, 0.5, 1].map((t) => `<i style="background:${corDoPartido(p, 30 + 40 * t)}"></i>`).join("");
+      return `<div class="linha"><span class="chip-forca">${tons}</span>${esc(p)}<span class="n">${n} ${rotulo}</span></div>`;
+    })
+    .join("") || `<div class="linha" style="color:var(--suave)">Ainda não há votos apurados neste recorte.</div>`;
+  const escala = (DADOS.mapa && DADOS.mapa.escala) || { min: 30, max: 70 };
+  return `<div class="legenda-mapa">${linhas}</div>
+    <div class="barra-forca"></div>
+    <div class="barra-forca-label"><span>tom claro: ${escala.min}%</span><span>tom cheio: ${escala.max}%+</span></div>
+    <p class="dica">Tom mais forte = maioria maior (% do líder sobre os votos válidos). ${comVotos} de ${totalUnidades} com votos.</p>`;
+}
+
+function svgDoMapa(dados) {
+  const proj = (DADOS.mapa && DADOS.mapa.proj) || { largura: 1000, altura: 1000 };
+  const vb = proj.viewBox || [0, 0, proj.largura, proj.altura];
+  const partes = [];
+  for (const uf of Object.keys(DADOS.mapa.uf).sort()) {
+    const geo = DADOS.mapa.uf[uf];
+    const topo = dados ? dados[uf] : null;
+    const apurado = temVotos(topo);
+    const emDisputa = !apurado && !!(topo && topo[0]);
+    const cor = apurado ? corDoPartido(topo[0][0], topo[0][1]) : (emDisputa ? MAPA_DISPUTA : MAPA_CINZA);
+    const classe = emDisputa ? "uf em-disputa" : "uf";
+    partes.push(`<path class="${classe}" data-uf="${esc(uf)}" d="${esc(geo.p)}" fill="${cor}" onclick="location.hash='#/mapa/${uf.toLowerCase()}'"><title>${esc(tituloDaArea(nomeDaUf(uf), topo))} — clique para ver os municípios</title></path>`);
+  }
+  return `<div class="mapa-caixa"><svg class="mapa-br" viewBox="${vb.join(" ")}" role="img" aria-label="Mapa do Brasil por estado">${partes.join("")}</svg></div>`;
+}
+
+function svgDosMunicipios(uf, dadosGeo, resVetor) {
+  const partes = [];
+  const itens = dadosGeo.itens || [];
+  for (let i = 0; i < itens.length; i += 1) {
+    const codigoIbge = itens[i][0], codigoTse = itens[i][1], path = itens[i][2];
+    const topo = resVetor ? resVetor[i] : null;
+    const apurado = temVotos(topo);
+    const emDisputa = !apurado && !!(topo && topo[0]);
+    const cor = apurado ? corDoPartido(topo[0][0], topo[0][1]) : (emDisputa ? MAPA_DISPUTA : MAPA_CINZA);
+    const classe = emDisputa ? "uf em-disputa" : "uf";
+    const nome = nomeDoMunicipio(uf, codigoTse);
+    const clique = codigoTse ? ` onclick="location.hash='#/municipio/${uf}/${codigoTse}'"` : "";
+    partes.push(`<path class="${classe}" data-ibge="${esc(codigoIbge)}" d="${esc(path)}" fill="${cor}"${clique}><title>${esc(tituloDaArea(nome, topo))}</title></path>`);
+  }
+  return `<div class="mapa-caixa"><svg class="mapa-br" viewBox="${(dadosGeo.vb || [0, 0, 1000, 1000]).join(" ")}" role="img" aria-label="Mapa dos municípios">${partes.join("")}</svg></div>`;
+}
+
+function seletorDeEstados(uf) {
+  const comMapa = Object.keys((DADOS.mapa || {}).mun || {}).sort();
+  if (comMapa.length < 2) return "";
+  return `<div class="filtros"><select onchange="if(this.value)location.hash='#/mapa/'+this.value">
+    <option value="">Trocar de estado...</option>
+    ${comMapa.map((u) => `<option value="${u.toLowerCase()}" ${u === uf.toUpperCase() ? "selected" : ""}>${esc(nomeDaUf(u))}</option>`).join("")}
+  </select></div>`;
+}
+
+function viewMapa(params) {
+  const m = DADOS.mapa;
+  if (!m || !m.uf) return vazio('Sem mapa neste snapshot. Gere o arquivo novamente sem "--sem-mapa" para habilitar.');
+
+  const recorte = recorteDoMapa(params, "#/mapa");
+  const dados = (recorte.porTurno || {})[recorte.turno] || {};
+  const tops = Object.keys(dados).map((uf) => dados[uf]);
+  const emDisputa = Object.keys(dados).filter((uf) => dados[uf] && dados[uf][0] && !temVotos(dados[uf]));
+  let nota = "";
+  if (!tops.some(temVotos)) {
+    if (emDisputa.length) {
+      nota = `<p class="dica">${emDisputa.length} estado(s) em 2º turno (contorno tracejado no mapa): <strong>${emDisputa.join(", ")}</strong>. A apuração começa no dia da votação.</p>`;
+    } else {
+      nota = recorte.cargo === "3" && recorte.turno === "2"
+        ? `<p class="dica">Nenhum estado teve 2º turno para Governador.</p>`
+        : `<p class="dica">Ainda não há votos apurados neste turno — a votação começa no dia da eleição.</p>`;
+    }
+  }
+
+  return `<h2>Mapa do Brasil — ${esc(DADOS.cargos[recorte.cargo] || recorte.cargo)}</h2>
+    <div class="abas">${recorte.abasCargo}</div>
+    <div class="abas">${recorte.abasTurno}</div>
+    ${linhaDoNacional(recorte.cargo, recorte.turno)}
+    ${nota}
+    <div class="mapa-wrap">
+      ${svgDoMapa(dados)}
+      <div class="mapa-lado">
+        <div class="painel">
+          <h3>Cores</h3>
+          <p class="dica" style="margin-top:0">Cada estado recebe a cor do <strong>partido mais votado</strong>. A intensidade mostra o tamanho da maioria.</p>
+          ${legendaDeMapa(tops, Object.keys(m.uf).length, "estado(s)")}
+        </div>
+      </div>
+    </div>
+    <p class="dica">Clique em um estado para abrir o <strong>mapa dos municípios</strong> dele. Base: ${(m.proj || {}).nome === "albers" ? "projeção Albers" : "projeção"} • geometria IBGE.</p>`;
+}
+
+function viewMapaUf(ufBruto, params) {
+  const m = DADOS.mapa;
+  const uf = String(ufBruto || "").toLowerCase();
+  if (!m || !m.uf) return vazio('Sem mapa neste snapshot. Gere o arquivo novamente sem "--sem-mapa" para habilitar.');
+  const dadosGeo = (m.mun || {})[uf.toUpperCase()];
+  const voltar = `<p><a href="#/mapa">← mapa do Brasil</a> • <a href="#/estado/${esc(uf)}">ver resultados de ${esc(uf.toUpperCase())} →</a></p>`;
+  if (!dadosGeo || !(dadosGeo.itens || []).length) {
+    return `<h2>Mapa — ${esc(nomeDaUf(uf))} (${esc(uf.toUpperCase())})</h2>
+      <p class="dica">Este estado não tem o mapa por município embutido neste snapshot. Gere o arquivo com <code>--mapa-municipios ${esc(uf)}</code>.</p>${voltar}`;
+  }
+
+  const recorte = recorteDoMapa(params, "#/mapa/" + uf);
+  const resVetor = (((m.munres || {})[recorte.cargo] || {})[recorte.turno] || {})[uf.toUpperCase()] || [];
+  const tops = resVetor.filter(Boolean);
+  const total = (dadosGeo.itens || []).length;
+  const emDisputa = tops.filter((t) => t[0] && !temVotos(t)).length;
+  let nota = "";
+  if (!resVetor.some(temVotos)) {
+    nota = recorte.turno === "2"
+      ? `<p class="dica">Nenhum município com votos apurados neste turno ainda${emDisputa ? " — o 2º turno está definido, mas a apuração começa no dia da votação" : ""}.</p>`
+      : `<p class="dica">Sem votos por município neste recorte.</p>`;
+  }
+
+  return `<h2>Mapa dos municípios — ${esc(nomeDaUf(uf))} (${esc(uf.toUpperCase())})</h2>
+    <div class="abas">${recorte.abasCargo}</div>
+    <div class="abas">${recorte.abasTurno}</div>
+    ${linhaDoNacional(recorte.cargo, recorte.turno)}
+    ${nota}
+    <div class="mapa-wrap">
+      ${svgDosMunicipios(uf, dadosGeo, resVetor)}
+      <div class="mapa-lado">
+        <div class="painel">
+          <h3>Cores</h3>
+          <p class="dica" style="margin-top:0">Cada município recebe a cor do <strong>partido mais votado</strong>; a intensidade mostra o tamanho da maioria.</p>
+          ${legendaDeMapa(tops, total, "município(s)")}
+          ${seletorDeEstados(uf)}
+        </div>
+      </div>
+    </div>
+    <p class="dica">Clique em um município para ver zonas e seções (${total} municípios neste mapa). ${voltar}</p>`;
+}
+
 /* ---------- Views ---------- */
 
 function viewHome() {
@@ -735,6 +1008,10 @@ function viewHome() {
     <div class="card-nivel" onclick="location.hash='#/municipios'">
       <div class="icone">🏙️</div><h3>Municipal</h3>
       <p>Busque o município e desça até zona e seção (urna), com votos por candidato.</p>
+    </div>
+    <div class="card-nivel" onclick="location.hash='#/mapa'">
+      <div class="icone">🗺️</div><h3>Mapa do Brasil</h3>
+      <p>Governador e Presidente por estado e por município, colorido pelo partido mais votado e pela força da maioria. 1º e 2º turno.</p>
     </div>
     <div class="card-nivel" onclick="location.hash='#/congresso'">
       <div class="icone">🏛️</div><h3>Congresso</h3>
@@ -1067,6 +1344,15 @@ function render() {
   } else if (partes[0] === "municipios") {
     html = viewMunicipios();
     trilha.push({ nome: "Municipal" });
+  } else if (partes[0] === "mapa") {
+    if (partes[1]) {
+      html = viewMapaUf(partes[1], params);
+      trilha.push({ nome: "Mapa", rota: "#/mapa" });
+      trilha.push({ nome: partes[1].toUpperCase() });
+    } else {
+      html = viewMapa(params);
+      trilha.push({ nome: "Mapa" });
+    }
   } else if (partes[0] === "congresso") {
     html = viewCongresso(params.get("casa") || "camara", params.get("uf") || "");
     trilha.push({ nome: "Congresso" });
@@ -1318,12 +1604,66 @@ function recalcularCongresso() {
   return casas;
 }
 
+/* Recalcula o mapa a partir dos dados já carregados (1º turno) espelhando
+   _top2 do services/mapa.py. */
+function top2DoResultado(res) {
+  const cands = (res && res.cands) || [];
+  if (!cands.length) return null;
+  const validos = (res.votos || {}).validos || 0;
+  return cands.slice(0, 2).map((c) => [
+    c.p || "",
+    validos > 0 ? Math.round((c.v * 100 / validos) * 100) / 100 : (c.pct || 0),
+    c.v || 0,
+    c.nome || "",
+  ]);
+}
+
+function recalcularMapaTurno1() {
+  const m = DADOS.mapa;
+  if (!m || !m.res) return;
+  for (const cargo of Object.keys(m.res)) {
+    if (!m.res[cargo] || !m.res[cargo]["1"]) continue;
+    const alvo = {};
+    for (const est of DADOS.estados || []) {
+      const topo = top2DoResultado((est.cargos || {})[String(cargo)]);
+      if (topo) alvo[est.uf.toUpperCase()] = topo;
+    }
+    m.res[cargo]["1"] = alvo;
+  }
+  if (m.brasil && m.brasil["1"]) m.brasil["1"]["1"] = top2DoResultado(DADOS.brasil);
+}
+
+/* 2º turno: busca 6258 (Presidente) e 6260 (Governador, se houver) por estado.
+   Arquivos que ainda não existem (404) são esperados e não contam como falha. */
+function agendarMapaTurno2(tarefas) {
+  const m = DADOS.mapa;
+  if (!m || !m.res) return;
+  const eleicoes = { "1": 6258, "3": 6260 };
+  for (const cargo of Object.keys(eleicoes)) {
+    if (!m.res[cargo]) continue;
+    if (!m.res[cargo]["2"]) m.res[cargo]["2"] = {};
+    const alvo = m.res[cargo]["2"];
+    for (const est of DADOS.estados || []) {
+      const uf = est.uf;
+      tarefas.push(fetchJson(urlResultado(eleicoes[cargo], cargo, uf)).then((j) => {
+        const topo = top2DoResultado(parseResultadoJS(j));
+        if (topo) alvo[uf.toUpperCase()] = topo;
+      }).catch(() => {}));
+    }
+  }
+  if (m.brasil && m.brasil["1"]) {
+    tarefas.push(fetchJson(urlResultado(6258, 1)).then((j) => {
+      const topo = top2DoResultado(parseResultadoJS(j));
+      if (topo) m.brasil["1"]["2"] = topo;
+    }).catch(() => {}));
+  }
+}
+
 async function fetchJson(url) {
   const resp = await fetch(url, { cache: "no-store" });
   if (!resp.ok) throw new Error("HTTP " + resp.status);
   return resp.json();
 }
-
 let atualizando = false;
 
 async function atualizarOnline() {
@@ -1377,8 +1717,11 @@ async function atualizarOnline() {
       }
     }
 
-    await Promise.all(tarefas);
+    const tarefasMapa = [];
+    agendarMapaTurno2(tarefasMapa);
+    await Promise.all(tarefas.concat(tarefasMapa));
     recalcularCongresso();
+    recalcularMapaTurno1();
     DADOS.gerado_em = new Date().toLocaleString("pt-BR");
     render();
     atualizarMeta();
