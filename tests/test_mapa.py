@@ -98,9 +98,10 @@ def test_top2_calcula_percentual_sobre_os_validos() -> None:
             {"n": "50", "nome": "C", "p": "PSOL", "v": 0, "pct": 0.0, "e": False},
         ],
         "votos": {"validos": 1000},
+        "tot": {"st": 80, "ts": 100, "pct": 80.0},
     }
     topo = svc_mapa._top2(resultado)
-    assert topo == [["PODE", 60.0, 600, "A"], ["MDB", 40.0, 400, "B"]]
+    assert topo == [["PODE", 60.0, 600, "A", 80], ["MDB", 40.0, 400, "B", 80]]
 
 
 def test_top2_sem_dados() -> None:
@@ -165,7 +166,20 @@ def test_coletar_mapa_monta_geometria_e_resumo(monkeypatch: pytest.MonkeyPatch) 
         }
     )
     estados = [
-        {"uf": "pa", "nome": "Pará", "cargos": {"3": {"cands": [{"n": "20", "nome": "DR. DANIEL", "p": "PODE", "v": 600, "pct": 60.0, "e": True}, {"n": "15", "nome": "HANA GHASSAN", "p": "MDB", "v": 400, "pct": 40.0, "e": False}], "votos": {"validos": 1000}}}},
+        {
+            "uf": "pa",
+            "nome": "Pará",
+            "cargos": {
+                "3": {
+                    "tot": {"st": 100, "ts": 100, "pct": 100.0},
+                    "cands": [
+                        {"n": "20", "nome": "DR. DANIEL", "p": "PODE", "v": 600, "pct": 60.0, "e": True},
+                        {"n": "15", "nome": "HANA GHASSAN", "p": "MDB", "v": 400, "pct": 40.0, "e": False},
+                    ],
+                    "votos": {"validos": 1000},
+                }
+            },
+        },
         {"uf": "sp", "nome": "São Paulo", "cargos": {}},
     ]
 
@@ -174,7 +188,10 @@ def test_coletar_mapa_monta_geometria_e_resumo(monkeypatch: pytest.MonkeyPatch) 
     assert mapa is not None
     assert set(mapa["uf"]) == {"PA", "SP"}  # códigos IBGE 15/35 mapeados para siglas
     assert mapa["escala"] == {"min": 30.0, "max": 70.0}
-    assert mapa["res"]["3"]["1"]["PA"] == [["PODE", 60.0, 600, "DR. DANIEL"], ["MDB", 40.0, 400, "HANA GHASSAN"]]
+    assert mapa["res"]["3"]["1"]["PA"] == [
+        ["PODE", 60.0, 600, "DR. DANIEL", 100],
+        ["MDB", 40.0, 400, "HANA GHASSAN", 100],
+    ]
     assert "SP" not in mapa["res"]["3"]["1"]  # sem cargos no snapshot => fora do recorte
     assert mapa["brasil"]["1"]["1"] is None
     # viewBox cobre os dois quadrados
@@ -228,9 +245,9 @@ def test_bake_resultado_municipios(monkeypatch: pytest.MonkeyPatch, tmp_path: An
 
     por_uf = svc_mapa.bake_resultado_municipios(cliente, loc, "3", "1", ["pa", "mt"])
     assert set(por_uf) == {"PA", "MT"}
-    assert por_uf["PA"]["1505502"] == [["PODE", 60.0, 600, "DR. DANIEL"]]
-    assert por_uf["PA"]["1500800"][0] == ["PODE", 70.0, 700, "DR. DANIEL"]
-    assert por_uf["MT"]["5107925"] == [["PL", 50.0, 500, "WELLINGTON"]]
+    assert por_uf["PA"]["1505502"] == [["PODE", 60.0, 600, "DR. DANIEL", 100]]
+    assert por_uf["PA"]["1500800"][0] == ["PODE", 70.0, 700, "DR. DANIEL", 100]
+    assert por_uf["MT"]["5107925"] == [["PL", 50.0, 500, "WELLINGTON", 100]]
 
     # segunda chamada usa o cache do bake (nenhuma requisição nova)
     antes = len(cliente.pedidos)
@@ -263,3 +280,10 @@ def test_combo_sem_votos_fica_fora_do_bake() -> None:
     assert ("1", "2") not in combos  # 2º turno ainda sem votos
     assert ("3", "2") not in combos
 
+
+
+def test_apuracao_derivada_de_secoes_quando_falta_pct() -> None:
+    assert svc_mapa._apuracao({'tot': {'st': 25, 'ts': 100}}) == 25
+    assert svc_mapa._apuracao({'tot': {'st': 100, 'ts': 100, 'pct': 100.0}}) == 100
+    assert svc_mapa._apuracao(None) == 0
+    assert svc_mapa._apuracao({'tot': {'st': 0, 'ts': 0}}) == 0

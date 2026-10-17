@@ -33,16 +33,26 @@ from eleitor.sources.resultados import parse_resultado, url_resultado
 
 ELEICAO_DO_CARGO_TURNO = {(1, 1): 6257, (3, 1): 6259, (1, 2): 6258, (3, 2): 6260}
 
+# Versão do bake gravado em disco: mudar aqui força recalcular (o formato da
+# entrada mudou, ex.: passou a guardar o percentual de apuração).
+VERSAO_BAKE = 2
 
-def _share(cand: dict[str, Any], validos: int) -> float:
-    votos = int(cand.get("v") or 0)
-    if validos > 0:
-        return round(votos * 100.0 / validos, 2)
-    return round(float(cand.get("pct") or 0.0), 2)
+
+def _apuracao(resumo: dict[str, Any] | None) -> int:
+    """Percentual de seções totalizadas (0-100) arredondado."""
+
+    if not resumo:
+        return 0
+    tot = resumo.get("tot") or {}
+    pct = tot.get("pct")
+    if pct is None:
+        total = float(tot.get("ts") or 0)
+        pct = (float(tot.get("st") or 0) * 100.0 / total) if total else 0.0
+    return int(round(float(pct or 0)))
 
 
 def _top2(resultado_uf: dict[str, Any] | None) -> list[list[Any]] | None:
-    """[[partido, share, votos, nome], [partido, share, votos, nome]] do top 2."""
+    """[[partido, share, votos, nome, apuracao%], ...] do top 2."""
 
     if not resultado_uf:
         return None
@@ -50,6 +60,7 @@ def _top2(resultado_uf: dict[str, Any] | None) -> list[list[Any]] | None:
     if not cands:
         return None
     validos = int(((resultado_uf.get("votos") or {}).get("validos") or 0))
+    apuracao = _apuracao(resultado_uf)
     itens: list[list[Any]] = []
     for cand in cands[:2]:
         itens.append(
@@ -58,9 +69,17 @@ def _top2(resultado_uf: dict[str, Any] | None) -> list[list[Any]] | None:
                 _share(cand, validos),
                 int(cand.get("v") or 0),
                 cand.get("nome") or "",
+                apuracao,
             ]
         )
     return itens
+
+
+def _share(cand: dict[str, Any], validos: int) -> float:
+    votos = int(cand.get("v") or 0)
+    if validos > 0:
+        return round(votos * 100.0 / validos, 2)
+    return round(float(cand.get("pct") or 0.0), 2)
 
 
 def _top2_de_body(body: dict[str, Any] | None) -> list[list[Any]] | None:
@@ -75,7 +94,18 @@ def _top2_de_body(body: dict[str, Any] | None) -> list[list[Any]] | None:
     ]
     if not cands:
         return None
-    return _top2({"cands": cands, "votos": {"validos": res.votos.validos}})
+    t = res.totalizacao
+    return _top2(
+        {
+            "cands": cands,
+            "votos": {"validos": res.votos.validos},
+            "tot": {
+                "st": t.secoes_totalizadas,
+                "ts": t.secoes_total,
+                "pct": t.percentual_secoes,
+            },
+        }
+    )
 
 
 def coletar_mapa(
@@ -192,12 +222,14 @@ def _arquivo_bake(cargo: str, turno: str) -> Path:
 
 
 def _ler_bake(
-    cargo: str, turno: str, refazer: bool
+    cargo: str, turno: str, refazer: bool, ufs: list[str]
 ) -> tuple[dict[str, dict[str, list]], bool]:
     """Devolve (parcial, esta_completo) do bake em disco.
 
     Um bake interrompido é retomado de onde parou (as UFs já feitas são
-    puladas); só é reaproveitado inteiro quando ``completo`` e dentro do TTL.
+    puladas). Só é reaproveitado inteiro quando cobre todas as UFs pedidas,
+    está marcado como ``completo`` e dentro do TTL — assim um bake parcial
+    (ex.: só PA) não engana um bake do Brasil inteiro.
     """
 
     if refazer:
@@ -209,11 +241,14 @@ def _ler_bake(
         dados = json.loads(caminho.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}, False
-    ttl = TTL_MAPA_RES if turno == "1" else TTL_MAPA_RES_2T
-    idade = time.time() - float(dados.get("gerado_em", 0.0))
-    if idade > ttl:
+    if dados.get("versao") != VERSAO_BAKE:
         return {}, False
-    return dados.get("por_uf") or {}, bool(dados.get("completo"))
+    ttl = TTL_MAPA_RES if turno == "1" else TTL_MAPA_RES_2T
+    if time.time() - float(dados.get("gerado_em", 0.0)) > ttl:
+        return {}, False
+    cobertas = {str(u).upper() for u in (dados.get("ufs") or [])}
+    pedidas = {str(u).upper() for u in ufs}
+    return dados.get("por_uf") or {}, bool(dados.get("completo")) and pedidas <= cobertas
 
 
 def _gravar_bake(
@@ -223,7 +258,13 @@ def _gravar_bake(
     tmp = caminho.with_suffix(".tmp")
     tmp.write_text(
         json.dumps(
-            {"gerado_em": time.time(), "completo": completo, "por_uf": por_uf},
+            {
+                "versao": VERSAO_BAKE,
+                "gerado_em": time.time(),
+                "completo": completo,
+                "ufs": sorted(por_uf),
+                "por_uf": por_uf,
+            },
             ensure_ascii=False,
             separators=(",", ":"),
         ),
@@ -233,7 +274,7 @@ def _gravar_bake(
 
 
 def _topo(body: dict[str, Any] | None, quantidade: int) -> list[list[Any]] | None:
-    """Top N do corpo EA20 no formato [partido, % válidos, votos, nome]."""
+    """Top N do corpo EA20: [partido, % válidos, votos, nome, apuração%]."""
 
     if not body:
         return None
@@ -241,12 +282,14 @@ def _topo(body: dict[str, Any] | None, quantidade: int) -> list[list[Any]] | Non
     if not res.candidatos:
         return None
     validos = res.votos.validos
+    apuracao = int(round(res.totalizacao.percentual_secoes or 0))
     itens = [
         [
             candidato.partido,
             _share({"v": candidato.votos, "pct": candidato.percentual}, validos),
             candidato.votos,
             candidato.nome_urna or candidato.nome,
+            apuracao,
         ]
         for candidato in res.candidatos[:quantidade]
     ]
@@ -276,7 +319,7 @@ def bake_resultado_municipios(
         if progresso:
             progresso(msg)
 
-    cache, completo = _ler_bake(cargo, turno, refazer)
+    cache, completo = _ler_bake(cargo, turno, refazer, ufs)
     if completo and cache:
         aviso(f"Mapa — líder por município ({cargo}º/{turno}º) reaproveitado do cache.")
         return cache

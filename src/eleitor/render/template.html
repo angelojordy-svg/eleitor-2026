@@ -318,6 +318,27 @@
   svg.mapa-br path.uf { stroke: #fff; stroke-width: .8; cursor: pointer; }
   svg.mapa-br path.uf:hover { stroke: var(--azul); stroke-width: 1.8; }
   svg.mapa-br path.uf.em-disputa { stroke: #93a8bf; stroke-dasharray: 4 3; }
+  .balao {
+    position: fixed;
+    z-index: 60;
+    display: none;
+    max-width: 280px;
+    background: #10233a;
+    color: #fff;
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.35;
+    box-shadow: 0 10px 26px rgba(0,0,0,.32);
+    pointer-events: none;
+  }
+  .balao.fixo { border: 1px solid #6f8db0; }
+  .balao .balao-titulo { font-weight: 800; font-size: 14px; margin-bottom: 4px; }
+  .balao .balao-linha { margin-top: 2px; }
+  .balao .obs { color: #b9c8d8; }
+  .balao .ao-vivo { color: #8fd6a8; font-size: 12px; }
+  .balao .balao-dica { margin-top: 6px; color: #ffd98a; font-size: 12px; }
+  .balao .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
   .mapa-lado h3 { margin-top: 0; }
   .chip-forca { display: inline-flex; gap: 2px; margin-right: 8px; vertical-align: middle; }
   .chip-forca i { width: 10px; height: 14px; display: block; border-radius: 2px; }
@@ -345,6 +366,7 @@
   <span class="aviso">snapshot offline gerado do TSE — use "Atualizar online" ou regenere o arquivo para dados mais novos</span>
 </header>
 <div class="toast" id="toast"></div>
+<div class="balao" id="balao"></div>
 <nav class="trilha" id="trilha"></nav>
 <main id="app"></main>
 <div class="fonte">Fonte: Tribunal Superior Eleitoral (resultados.tse.jus.br) — artefato offline para consulta. Sem vínculo oficial.</div>
@@ -750,11 +772,29 @@ function municipioAtual(uf, codigo) {
 /* ---------- Mapa do Brasil ---------- */
 /* Regra de cor: matiz = partido do mais votado; intensidade = tamanho da
    maioria (percentual do líder sobre os votos válidos, escala fixa
-   30% = tom claro, 70% ou mais = tom cheio). Sem votos = cinza neutro. */
+   30% = tom claro, 70% ou mais = tom cheio). Sem votos = cinza neutro.
+
+   Balão: mostra votação (líder, %, 2º) e apuração (seções totalizadas %).
+   Com internet o número é buscado de novo ao passar o mouse — e para de
+   buscar quando a apuração daquela área já encerrou (100% das seções). */
 
 const MAPA_CARGOS = ["3", "1"];
 const MAPA_CINZA = "#e3e8ee";
 const MAPA_DISPUTA = "#d6e0ec";
+const MAPA_ELEICAO_2T = { "1": 6258, "3": 6260 };
+
+let MAPA_CTX = null;
+let MAPA_ALVOS = {};
+let MAPA_CACHE = {};
+let MAPA_ENCERROU = {};
+let MAPA_FIXADO = null;
+let MAPA_ATUAL = null;
+let MAPA_TIMER = null;
+let MAPA_TIPO_PONTEIRO = "mouse";
+
+function eleicaoDoRecorte(cargo, turno) {
+  return turno === "2" ? (MAPA_ELEICAO_2T[cargo] || ELEICAO_DO_CARGO[cargo]) : ELEICAO_DO_CARGO[cargo];
+}
 
 function hexParaHsl(hex) {
   const limpo = String(hex || "").replace("#", "");
@@ -797,6 +837,50 @@ function temVotos(topo) {
   return !!(topo && topo[0] && topo[0][2] > 0);
 }
 
+function apuracaoDe(topo) {
+  if (!topo || !topo[0]) return null;
+  const valor = topo[0][4];
+  return typeof valor === "number" ? valor : null;
+}
+
+/* Regra de parada: só vale buscar o número de novo enquanto a apuração
+   daquela área não encerrou (100% das seções). */
+function apuracaoEncerrada(topo) {
+  const pst = apuracaoDe(topo);
+  return pst !== null && pst >= 100;
+}
+
+function statusDaArea(topo, ehSegundoTurno) {
+  if (!temVotos(topo)) {
+    return topo && topo[0] ? "apuração ainda não começou" : "sem votos por aqui";
+  }
+  const lider = topo[0];
+  const pst = apuracaoDe(topo);
+  if (pst !== null && pst >= 100) {
+    if (lider[1] > 50) return `resultado definido — eleito com ${pct(lider[1])}`;
+    return ehSegundoTurno
+      ? `apuração encerrada — vai ao 2º turno (líder com ${pct(lider[1])})`
+      : `apuração encerrada — líder com ${pct(lider[1])} (sem maioria)`;
+  }
+  return pst === null ? "apuração em andamento" : `apuração em andamento (${pst}% das seções)`;
+}
+
+function ufsEm2Turno(m, cargo) {
+  const porTurno = ((m.res || {})[cargo] || {})["2"] || {};
+  return Object.keys(porTurno).map((u) => u.toUpperCase());
+}
+
+function areaVaiAo2Turno(info) {
+  const lista = (MAPA_CTX && MAPA_CTX.em2Turno) || [];
+  const uf = String((info.tipo === "uf" ? info.uf : info.uf) || "").toUpperCase();
+  return lista.indexOf(uf) >= 0;
+}
+
+function corDoTopo(topo) {
+  if (temVotos(topo)) return corDoPartido(topo[0][0], topo[0][1]);
+  return topo && topo[0] ? MAPA_DISPUTA : MAPA_CINZA;
+}
+
 let _nomesMunicipios = null;
 
 function nomeDoMunicipio(uf, codigo) {
@@ -806,6 +890,187 @@ function nomeDoMunicipio(uf, codigo) {
   }
   return _nomesMunicipios.get(String(uf).toLowerCase() + codigo) || codigo;
 }
+
+/* ---------- Balão ---------- */
+
+function htmlDoBalao(info, topo) {
+  const linhas = [`<div class="balao-titulo">${esc(info.nome)}</div>`];
+  if (temVotos(topo)) {
+    const [p, share, votos, cand] = topo[0];
+    linhas.push(
+      `<div class="balao-linha"><span class="sw" style="background:${corPartido(p)}"></span><strong>${esc(cand)}</strong> <span class="obs">(${esc(p)})</span></div>`
+    );
+    linhas.push(`<div class="balao-linha"><strong>${fmt(votos)}</strong> votos <span class="obs">• ${pct(share)} dos válidos</span></div>`);
+    if (topo[1]) {
+      linhas.push(`<div class="balao-linha obs">2º: ${esc(topo[1][3])} (${esc(topo[1][0])}) ${pct(topo[1][1])}</div>`);
+    }
+  } else if (topo && topo[0] && topo[1]) {
+    linhas.push(`<div class="balao-linha obs">2º turno: ${esc(topo[0][3])} x ${esc(topo[1][3])}</div>`);
+  } else {
+    linhas.push(`<div class="balao-linha obs">sem votos apurados por aqui</div>`);
+  }
+  const pst = apuracaoDe(topo);
+  if (pst !== null) {
+    linhas.push(`<div class="balao-linha">Apuração: <strong>${pst}%</strong> das seções</div>`);
+  }
+  linhas.push(`<div class="balao-linha obs">${esc(statusDaArea(topo, areaVaiAo2Turno(info)))}</div>`);
+  if (info.buscando) {
+    linhas.push(`<div class="balao-linha ao-vivo">buscando o número mais novo no TSE...</div>`);
+  } else if (MAPA_CACHE[info.chave]) {
+    linhas.push(`<div class="balao-linha ao-vivo">atualizado agora (online)</div>`);
+  }
+  if (MAPA_TIPO_PONTEIRO === "touch" && MAPA_FIXADO) {
+    linhas.push(`<div class="balao-dica">toque de novo para abrir</div>`);
+  }
+  return linhas.join("");
+}
+
+function posicionarBalao(x, y) {
+  const balao = $("#balao");
+  const largura = balao.offsetWidth || 250;
+  const altura = balao.offsetHeight || 130;
+  const margem = 16;
+  let esq = x + margem;
+  let cima = y + margem;
+  if (esq + largura > window.innerWidth - 8) esq = Math.max(8, x - largura - margem);
+  if (cima + altura > window.innerHeight - 8) cima = Math.max(8, y - altura - margem);
+  balao.style.left = esq + "px";
+  balao.style.top = cima + "px";
+}
+
+function pintarBalao(info, x, y) {
+  const balao = $("#balao");
+  const topo = MAPA_CACHE[info.chave] || info.topo;
+  balao.innerHTML = htmlDoBalao(info, topo);
+  balao.style.display = "block";
+  balao.classList.toggle("fixo", !!MAPA_FIXADO);
+  posicionarBalao(x, y);
+}
+
+function mostrarBalao(alvo, x, y, fixar) {
+  const chave = alvo && alvo.dataset ? alvo.dataset.chave : null;
+  const info = chave ? MAPA_ALVOS[chave] : null;
+  if (!info) return;
+  MAPA_ATUAL = info;
+  MAPA_FIXADO = fixar ? alvo : null;
+  pintarBalao(info, x, y);
+  const topo = MAPA_CACHE[chave] || info.topo;
+  if (!apuracaoEncerrada(topo) && !MAPA_ENCERROU[chave]) agendarBusca(info);
+}
+
+function esconderBalao() {
+  const balao = $("#balao");
+  if (balao) {
+    balao.style.display = "none";
+    balao.innerHTML = "";
+  }
+  MAPA_FIXADO = null;
+  MAPA_ATUAL = null;
+  if (MAPA_TIMER) {
+    clearTimeout(MAPA_TIMER);
+    MAPA_TIMER = null;
+  }
+}
+
+/* Espera o ponteiro parar antes de ir à rede (evita rajada ao varrer o mapa). */
+function agendarBusca(info) {
+  if (MAPA_TIMER) clearTimeout(MAPA_TIMER);
+  MAPA_TIMER = setTimeout(() => {
+    MAPA_TIMER = null;
+    buscarAoVivo(info);
+  }, 280);
+}
+
+function topoDaResposta(res, quantidade) {
+  const cands = (res && res.cands ? res.cands : []).slice(0, quantidade);
+  if (!cands.length) return null;
+  const validos = (res.votos || {}).validos || 0;
+  const pst = Math.round((res.tot || {}).pct || 0);
+  return cands.map((c) => [
+    c.p || "",
+    validos > 0 ? Math.round((c.v * 100 / validos) * 100) / 100 : (c.pct || 0),
+    c.v || 0,
+    c.nome || "",
+    pst,
+  ]);
+}
+
+async function buscarAoVivo(info) {
+  if (info.buscando || MAPA_CACHE[info.chave] || MAPA_ENCERROU[info.chave]) return;
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+  info.buscando = true;
+  const posicao = MAPA_ATUAL === info && $("#balao") ? { x: 0, y: 0 } : null;
+  if (posicao) {
+    const r = $("#balao").getBoundingClientRect();
+    posicao.x = r.left + 12;
+    posicao.y = r.top + 12;
+  }
+  if (MAPA_ATUAL === info) pintarBalao(info, posicao.x || 40, posicao.y || 40);
+  try {
+    const url = info.uf
+      ? urlResultado(info.eleicao, info.cargo, info.uf, info.cd)
+      : urlResultado(info.eleicao, info.cargo);
+    const topo = topoDaResposta(parseResultadoJS(await fetchJson(url)), info.quantidade);
+    if (!topo) return;
+    MAPA_CACHE[info.chave] = topo;
+    info.topo = topo;
+    info.buscando = false; // já temos o número novo: o balão não mostra mais "buscando"
+    if (apuracaoEncerrada(topo)) MAPA_ENCERROU[info.chave] = true;
+    const alvo = document.querySelector(`path[data-chave="${info.chave}"]`);
+    if (alvo) alvo.setAttribute("fill", corDoTopo(topo));
+    if (info.indice !== undefined && MAPA_CTX && MAPA_CTX.resVetor) {
+      MAPA_CTX.resVetor[info.indice] = topo;
+    }
+    if (MAPA_ATUAL === info) pintarBalao(info, posicao.x || 40, posicao.y || 40);
+  } catch (e) {
+    /* sem internet ou arquivo ainda não publicado: mantém o snapshot */
+    if (typeof console !== "undefined") console.warn("mapa: não foi possível atualizar ao vivo", e);
+  } finally {
+    info.buscando = false;
+  }
+}
+
+function ligarMapa() {
+  const svg = document.querySelector("svg.mapa-br");
+  if (!svg) return;
+  svg.addEventListener("pointermove", (ev) => {
+    if (MAPA_TIPO_PONTEIRO === "touch") return;
+    const alvo = ev.target.closest("path[data-chave]");
+    if (!alvo) {
+      if (!MAPA_FIXADO) esconderBalao();
+      return;
+    }
+    if (MAPA_FIXADO) return;
+    mostrarBalao(alvo, ev.clientX, ev.clientY, false);
+  });
+  svg.addEventListener("pointerleave", () => {
+    if (!MAPA_FIXADO) esconderBalao();
+  });
+  svg.addEventListener("click", (ev) => {
+    const alvo = ev.target.closest("path[data-chave]");
+    if (!alvo) return;
+    const rota = alvo.dataset.rota;
+    if (MAPA_TIPO_PONTEIRO === "touch" && MAPA_FIXADO !== alvo) {
+      // primeiro toque só informa; o segundo abre
+      ev.preventDefault();
+      ev.stopPropagation();
+      mostrarBalao(alvo, ev.clientX, ev.clientY, true);
+      return;
+    }
+    if (rota) {
+      ev.preventDefault();
+      location.hash = rota;
+    }
+  });
+  document.addEventListener("pointerdown", (ev) => {
+    MAPA_TIPO_PONTEIRO = ev.pointerType || "mouse";
+    if (MAPA_FIXADO && !(ev.target.closest && ev.target.closest("path[data-chave]"))) {
+      esconderBalao();
+    }
+  }, true);
+}
+
+/* ---------- Desenho dos mapas ---------- */
 
 function tituloDaArea(nome, topo) {
   if (!temVotos(topo)) {
@@ -817,6 +1082,8 @@ function tituloDaArea(nome, topo) {
   const [p, share, votos, cand] = topo[0];
   let texto = `${nome} — ${cand} (${p}): ${fmt(votos)} votos, ${pct(share)} dos válidos`;
   if (topo[1]) texto += ` • 2º: ${topo[1][3]} (${topo[1][0]}) ${pct(topo[1][1])}`;
+  const pst = apuracaoDe(topo);
+  if (pst !== null) texto += ` • apuração ${pst}%`;
   return texto;
 }
 
@@ -871,35 +1138,65 @@ function legendaDeMapa(tops, totalUnidades, rotulo) {
     <p class="dica">Tom mais forte = maioria maior (% do líder sobre os votos válidos). ${comVotos} de ${totalUnidades} com votos.</p>`;
 }
 
-function svgDoMapa(dados) {
+function svgDoMapa(dados, recorte) {
   const proj = (DADOS.mapa && DADOS.mapa.proj) || { largura: 1000, altura: 1000 };
   const vb = proj.viewBox || [0, 0, proj.largura, proj.altura];
+  const eleicao = eleicaoDoRecorte(recorte.cargo, recorte.turno);
   const partes = [];
   for (const uf of Object.keys(DADOS.mapa.uf).sort()) {
     const geo = DADOS.mapa.uf[uf];
     const topo = dados ? dados[uf] : null;
-    const apurado = temVotos(topo);
-    const emDisputa = !apurado && !!(topo && topo[0]);
-    const cor = apurado ? corDoPartido(topo[0][0], topo[0][1]) : (emDisputa ? MAPA_DISPUTA : MAPA_CINZA);
-    const classe = emDisputa ? "uf em-disputa" : "uf";
-    partes.push(`<path class="${classe}" data-uf="${esc(uf)}" d="${esc(geo.p)}" fill="${cor}" onclick="location.hash='#/mapa/${uf.toLowerCase()}'"><title>${esc(tituloDaArea(nomeDaUf(uf), topo))} — clique para ver os municípios</title></path>`);
+    const chave = "uf/" + uf;
+    MAPA_ALVOS[chave] = {
+      tipo: "uf",
+      chave: chave,
+      uf: uf.toLowerCase(),
+      nome: nomeDaUf(uf),
+      topo: topo,
+      eleicao: eleicao,
+      cargo: recorte.cargo,
+      quantidade: 2,
+    };
+    const classe = !temVotos(topo) && topo && topo[0] ? "uf em-disputa" : "uf";
+    partes.push(
+      `<path class="${classe}" data-chave="${esc(chave)}" data-rota="#/mapa/${uf.toLowerCase()}" d="${esc(geo.p)}" fill="${corDoTopo(topo)}" role="link" aria-label="${esc(tituloDaArea(nomeDaUf(uf), topo))}"></path>`
+    );
   }
   return `<div class="mapa-caixa"><svg class="mapa-br" viewBox="${vb.join(" ")}" role="img" aria-label="Mapa do Brasil por estado">${partes.join("")}</svg></div>`;
 }
 
-function svgDosMunicipios(uf, dadosGeo, resVetor) {
+function svgDosMunicipios(uf, dadosGeo, resVetor, recorte) {
+  const eleicao = eleicaoDoRecorte(recorte.cargo, recorte.turno);
+  const quantidade = recorte.turno === "2" ? 2 : 2;
   const partes = [];
   const itens = dadosGeo.itens || [];
   for (let i = 0; i < itens.length; i += 1) {
     const codigoIbge = itens[i][0], codigoTse = itens[i][1], path = itens[i][2];
     const topo = resVetor ? resVetor[i] : null;
-    const apurado = temVotos(topo);
-    const emDisputa = !apurado && !!(topo && topo[0]);
-    const cor = apurado ? corDoPartido(topo[0][0], topo[0][1]) : (emDisputa ? MAPA_DISPUTA : MAPA_CINZA);
-    const classe = emDisputa ? "uf em-disputa" : "uf";
     const nome = nomeDoMunicipio(uf, codigoTse);
-    const clique = codigoTse ? ` onclick="location.hash='#/municipio/${uf}/${codigoTse}'"` : "";
-    partes.push(`<path class="${classe}" data-ibge="${esc(codigoIbge)}" d="${esc(path)}" fill="${cor}"${clique}><title>${esc(tituloDaArea(nome, topo))}</title></path>`);
+    let chave = null;
+    if (codigoTse) {
+      chave = "mun/" + uf + "/" + codigoTse;
+      MAPA_ALVOS[chave] = {
+        tipo: "mun",
+        chave: chave,
+        uf: uf,
+        cd: codigoTse,
+        indice: i,
+        nome: nome,
+        topo: topo,
+        eleicao: eleicao,
+        cargo: recorte.cargo,
+        quantidade: quantidade,
+      };
+    }
+    const classe = !temVotos(topo) && topo && topo[0] ? "uf em-disputa" : "uf";
+    const extras = chave
+      ? ` data-chave="${esc(chave)}" data-rota="#/municipio/${uf}/${codigoTse}" role="link"`
+      : ` data-ibge="${esc(codigoIbge)}"`;
+    partes.push(
+      `<path class="${classe}"${extras} d="${esc(path)}" fill="${corDoTopo(topo)}" aria-label="${esc(tituloDaArea(nome, topo))}"></path>`
+    );
   }
   return `<div class="mapa-caixa"><svg class="mapa-br" viewBox="${(dadosGeo.vb || [0, 0, 1000, 1000]).join(" ")}" role="img" aria-label="Mapa dos municípios">${partes.join("")}</svg></div>`;
 }
@@ -931,6 +1228,8 @@ function viewMapa(params) {
         : `<p class="dica">Ainda não há votos apurados neste turno — a votação começa no dia da eleição.</p>`;
     }
   }
+  MAPA_CTX = { tipo: "uf", cargo: recorte.cargo, turno: recorte.turno, resVetor: null, em2Turno: ufsEm2Turno(m, recorte.cargo) };
+  MAPA_ALVOS = {};
 
   return `<h2>Mapa do Brasil — ${esc(DADOS.cargos[recorte.cargo] || recorte.cargo)}</h2>
     <div class="abas">${recorte.abasCargo}</div>
@@ -938,7 +1237,7 @@ function viewMapa(params) {
     ${linhaDoNacional(recorte.cargo, recorte.turno)}
     ${nota}
     <div class="mapa-wrap">
-      ${svgDoMapa(dados)}
+      ${svgDoMapa(dados, recorte)}
       <div class="mapa-lado">
         <div class="painel">
           <h3>Cores</h3>
@@ -947,7 +1246,7 @@ function viewMapa(params) {
         </div>
       </div>
     </div>
-    <p class="dica">Clique em um estado para abrir o <strong>mapa dos municípios</strong> dele. Base: ${(m.proj || {}).nome === "albers" ? "projeção Albers" : "projeção"} • geometria IBGE.</p>`;
+    <p class="dica">Passe o mouse (ou toque) em um estado para ver <strong>votação e apuração</strong>; clique para abrir o mapa dos municípios. Base: ${(m.proj || {}).nome === "albers" ? "projeção Albers" : "projeção"} • geometria IBGE.</p>`;
 }
 
 function viewMapaUf(ufBruto, params) {
@@ -972,6 +1271,8 @@ function viewMapaUf(ufBruto, params) {
       ? `<p class="dica">Nenhum município com votos apurados neste turno ainda${emDisputa ? " — o 2º turno está definido, mas a apuração começa no dia da votação" : ""}.</p>`
       : `<p class="dica">Sem votos por município neste recorte.</p>`;
   }
+  MAPA_CTX = { tipo: "mun", uf: uf, cargo: recorte.cargo, turno: recorte.turno, resVetor: resVetor, em2Turno: ufsEm2Turno(m, recorte.cargo) };
+  MAPA_ALVOS = {};
 
   return `<h2>Mapa dos municípios — ${esc(nomeDaUf(uf))} (${esc(uf.toUpperCase())})</h2>
     <div class="abas">${recorte.abasCargo}</div>
@@ -979,7 +1280,7 @@ function viewMapaUf(ufBruto, params) {
     ${linhaDoNacional(recorte.cargo, recorte.turno)}
     ${nota}
     <div class="mapa-wrap">
-      ${svgDosMunicipios(uf, dadosGeo, resVetor)}
+      ${svgDosMunicipios(uf, dadosGeo, resVetor, recorte)}
       <div class="mapa-lado">
         <div class="painel">
           <h3>Cores</h3>
@@ -989,7 +1290,7 @@ function viewMapaUf(ufBruto, params) {
         </div>
       </div>
     </div>
-    <p class="dica">Clique em um município para ver zonas e seções (${total} municípios neste mapa). ${voltar}</p>`;
+    <p class="dica">Passe o mouse (ou toque) em um município para ver <strong>votação e apuração</strong>; toque/clique de novo para abrir zonas e seções (${total} municípios neste mapa). ${voltar}</p>`;
 }
 
 /* ---------- Views ---------- */
@@ -1404,6 +1705,7 @@ function render() {
   montarTrilha(trilha);
   $("#app").innerHTML = html;
   ligarBusca();
+  ligarMapa();
   window.scrollTo(0, 0);
 }
 

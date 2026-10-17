@@ -22,6 +22,12 @@ O site tem ainda:
   fixa 30% → 70%+), com alternador de **1º/2º turno**. No 2º turno os estados em
   disputa aparecem com contorno tracejado antes da apuração. Todos os 5.571 municípios
   vêm embutidos (funciona offline).
+- **Balão de informações**: passar o mouse (ou tocar, no celular — o primeiro toque
+  informa e o segundo abre) mostra o líder, os votos, o % dos válidos, o 2º colocado e
+  o **% de apuração** (seções totalizadas), com o status ("apuração em andamento",
+  "eleito com X%", "vai ao 2º turno"). Com internet o número é buscado de novo no TSE
+  na hora — e **para de buscar quando a apuração daquela área encerra (100%)**. No
+  1º turno, que já está totalizado, isso significa zero requisições.
 - **Busca ao vivo**: qualquer município do Brasil (ex.: Niterói, Rio de Janeiro) é
   buscado na hora no TSE (Brasil, estado, município e zonas). Votos por seção/urna
   ficam disponíveis apenas para os municípios embutidos no arquivo.

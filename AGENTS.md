@@ -33,12 +33,18 @@ python -m venv .venv
 - `services/mapa.py` — resumo por UF para o mapa: partido do mais votado + força da maioria.
   Também faz o **bake do líder por município** (`bake_resultado_municipios`), com cache
   retomável em `%LOCALAPPDATA%\eleitor\mapa\res-{cargo}-t{turno}.json` (só grava `completo`
-  no fim; um bake interrompido continua de onde parou). Resultados saem como vetores
-  alinhados por índice com a geometria, para não repetir a chave do município no payload.
+  no fim; um bake interrompido continua de onde parou). O arquivo guarda `versao` (mudar
+  `VERSAO_BAKE` força recalcular) e `ufs` (um bake parcial, ex.: só PA, não engana um bake
+  nacional). Resultados saem como vetores alinhados por índice com a geometria, para não
+  repetir a chave do município no payload.
 - `services/snapshot.py` — coleta dados para o HTML offline (Brasil, estados, municípios, seções, fotos, mapa,
   geometria municipal e líder por município).
 - `render/` — `html.py` + `template.html` (artefato único, navegação por hash, página de candidato,
   botão "Atualizar online" que busca EA20 do TSE via fetch/CORS quando há internet).
+  O mapa usa um **balão próprio** (não o `<title>` nativo): mostra votação e apuração, busca o
+  número ao vivo com *debounce* de 280 ms e **para quando a apuração da área chega a 100%**
+  (`MAPA_ENCERROU`). Vale saber: os `<path>` não têm `onclick` inline — a navegação e o balão
+  são tratados por delegação em `ligarMapa()`, e no toque o 1º tap informa, o 2º abre.
 - `services/` — busca de município (EA12) e orquestração de votos/seções.
 - `cli.py` — argparse + menus rich. `models.py` — dataclasses.
 
@@ -70,15 +76,18 @@ python -m venv .venv
 - Resultado por município (para colorir) = EA20 por município (`{uf}{mun:05d}`), 1 requisição por município/cargo/turno.
 - `paths_municipios(uf)` projeta **cada estado no próprio quadro 1000×1000** (mapa municipal enche a tela);
   por isso a geometria municipal final (~1,6 MB) é maior que a soma das malhas cruas simplificadas em um quadro só.
-- Custo do mapa nacional embutido (medido): artefato 6,55 → 8,54 MB (geometria municipal 1,6 MB + líder por
-  município 0,4 MB para 2 combos). O `bake` do 1º turno é definitivo (TTL 24 h); o do 2º turno só roda quando
-  a apuração começa (`combos_com_dados`) e revalida sempre.
+- Custo do mapa nacional embutido (medido): artefato 6,55 → 8,59 MB (geometria municipal 1,6 MB + líder por
+  município 0,44 MB para 2 combos, incluindo o % de apuração). O `bake` do 1º turno é definitivo (TTL 24 h);
+  o do 2º turno só roda quando a apuração começa (`combos_com_dados`) e revalida sempre.
+- A entrada por área no mapa é `[partido, % válidos, votos, nome, apuração%]` (no 2º turno, uma lista com o
+  top 2). O `apuracao%` vem do próprio EA20 (`s.pst`), então o balão informa apuração e votação sem
+  requisição extra; o blob é atualizado ao vivo só enquanto `apuracao% < 100`.
 - Boa Esperança do Norte/MT (IBGE 5101837) é novo e ainda não tem malha no IBGE: fica fora do mapa municipal.
 
 ## Estado atual
 Implementado: resultados ao vivo (BR/UF/município/zona), seções com status via EA18, votos por seção via BU,
 artefato HTML offline (Brasil/estados/municípios/seções/congresso) e **mapa do Brasil** com estados e
 **municípios dos 5.571 municípios** (Governador e Presidente, 1º e 2º turno, cor pelo mais votado +
-intensidade pela maioria).
+intensidade pela maioria) e **balão com votação e apuração** (embutida + ao vivo, parando em 100%).
 Pendente: módulo de candidatos/bens (CSV `consulta_cand_2026.zip`/`bem_candidato_2026.zip`), finanças,
 dashboard web. Dados de produção podem ficar zerados até a totalização avançar; use `selftest`.
