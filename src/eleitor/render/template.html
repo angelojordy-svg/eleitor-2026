@@ -339,6 +339,26 @@
   .balao .ao-vivo { color: #8fd6a8; font-size: 12px; }
   .balao .balao-dica { margin-top: 6px; color: #ffd98a; font-size: 12px; }
   .balao .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
+  svg.mapa-br text.rotulo-mapa {
+    fill: #0e2136;
+    stroke: #fff;
+    stroke-width: 2.8px;
+    paint-order: stroke;
+    stroke-linejoin: round;
+    font-weight: 700;
+    font-family: inherit;
+    pointer-events: none;
+  }
+  .amostra-hachura {
+    width: 26px; height: 16px; border-radius: 3px; display: inline-block;
+    background: repeating-linear-gradient(45deg, #7f92a8 0 3px, #e9eef4 3px 8px);
+  }
+  .amostra-cheio {
+    width: 26px; height: 16px; border-radius: 3px; display: inline-block;
+    background: linear-gradient(90deg, #b9c6d4, #3f5b7a);
+  }
+  .controle-rotulo { margin-top: 12px; font-size: 13px; color: var(--suave); }
+  .controle-rotulo label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
   .mapa-lado h3 { margin-top: 0; }
   .chip-forca { display: inline-flex; gap: 2px; margin-right: 8px; vertical-align: middle; }
   .chip-forca i { width: 10px; height: 14px; display: block; border-radius: 2px; }
@@ -551,16 +571,20 @@ function vazio(msg) { return `<div class="vazio">${esc(msg)}</div>`; }
 
 /* ---------- Cores de partido e hemiciclo ---------- */
 
+/* Paleta com matizes espaçados (~40° no núcleo) para o mapa: os tons claros
+   e fortes mantêm a mesma matiz, então partidos parecidos (PL x PSD x PSDB,
+   PP x PODE, MDB x REPUBLICANOS) ficam distinguíveis em qualquer intensidade.
+   Pior par do núcleo: dE(CIEDE2000) = 12,2 — antes 11,3 só no tom base. */
 const CORES = {
-  "PT": "#c4122b", "PL": "#1e3a8a", "UNIÃO": "#f59e0b", "PP": "#0ea5e9",
-  "MDB": "#16a34a", "PSD": "#2563eb", "REPUBLICANOS": "#0369a1",
-  "PSDB": "#0d9488", "PDT": "#e11d48", "PSB": "#d97706", "PODE": "#7c3aed",
-  "PODEMOS": "#7c3aed", "PSOL": "#a21caf", "NOVO": "#f97316",
-  "SOLIDARIEDADE": "#0891b2", "CIDADANIA": "#65a30d", "PC do B": "#b91c1c",
-  "PV": "#15803d", "REDE": "#059669", "AVANTE": "#ca8a04", "MOBILIZA": "#6d28d9",
-  "DEMOCRATA": "#475569", "PSTU": "#7f1d1d", "PCO": "#991b1b", "PCB": "#7f1d1d",
-  "UP": "#4c1d95", "DC": "#334155", "MISSÃO": "#0f766e", "PRTB": "#92400e",
-  "AGIR": "#1d4ed8", "PSDC": "#0891b2", "PMN": "#0e7490", "PTC": "#b45309",
+  "PT": "#f20d33", "PL": "#330df2", "UNIÃO": "#f27f0d", "PP": "#bd0df2",
+  "MDB": "#adf20d", "PSD": "#0df2db", "REPUBLICANOS": "#0df259",
+  "PSDB": "#0d78f2", "PDT": "#f20d0d", "PSB": "#f2cc0d", "PODE": "#f20d9e",
+  "PODEMOS": "#f20d9e", "PSOL": "#f24a0d", "NOVO": "#f2330d",
+  "SOLIDARIEDADE": "#f21c0d", "CIDADANIA": "#f20d69", "PC do B": "#f20d4a",
+  "PV": "#4af20d", "REDE": "#0df296", "AVANTE": "#f2f20d", "MOBILIZA": "#f20df2",
+  "DEMOCRATA": "#0d1cf2", "PSTU": "#f20d80", "PCO": "#f20d1c", "PCB": "#f20dcc",
+  "UP": "#780df2", "DC": "#0d3bf2", "MISSÃO": "#0df270", "PRTB": "#f2690d",
+  "AGIR": "#870df2", "PSDC": "#0ddbf2", "PMN": "#0df2bd", "PTC": "#f2b50d",
 };
 
 function corPartido(sg) { return CORES[sg] || "#64748b"; }
@@ -774,13 +798,14 @@ function municipioAtual(uf, codigo) {
    maioria (percentual do líder sobre os votos válidos, escala fixa
    30% = tom claro, 70% ou mais = tom cheio). Sem votos = cinza neutro.
 
-   Balão: mostra votação (líder, %, 2º) e apuração (seções totalizadas %).
-   Com internet o número é buscado de novo ao passar o mouse — e para de
-   buscar quando a apuração daquela área já encerrou (100% das seções). */
+   Hachura = estado que vai ao 2º turno (definido no 1º turno).
+   Balão + rótulos = votação e apuração (% de seções totalizadas).
+   Com internet o número é buscado ao passar o mouse — e para de buscar
+   quando a apuração daquela área encerra (100% das seções). */
 
 const MAPA_CARGOS = ["3", "1"];
 const MAPA_CINZA = "#e3e8ee";
-const MAPA_DISPUTA = "#d6e0ec";
+const MAPA_DISPUTA = "#ccd8e5";
 const MAPA_ELEICAO_2T = { "1": 6258, "3": 6260 };
 
 let MAPA_CTX = null;
@@ -791,6 +816,7 @@ let MAPA_FIXADO = null;
 let MAPA_ATUAL = null;
 let MAPA_TIMER = null;
 let MAPA_TIPO_PONTEIRO = "mouse";
+let MAPA_ROTULOS = false; // mostrar % de apuração nas áreas que já fecharam
 
 function eleicaoDoRecorte(cargo, turno) {
   return turno === "2" ? (MAPA_ELEICAO_2T[cargo] || ELEICAO_DO_CARGO[cargo]) : ELEICAO_DO_CARGO[cargo];
@@ -822,8 +848,8 @@ function forcaDaMaioria(share) {
 function corDoPartido(partido, share) {
   const t = forcaDaMaioria(share);
   const base = hexParaHsl(corPartido(partido));
-  const luz = (84 - 50 * t).toFixed(1);
-  const sat = (45 + 30 * t).toFixed(1);
+  const luz = (68 - 36 * t).toFixed(1);
+  const sat = (84 + 12 * t).toFixed(1);
   const matiz = base.s < 6 ? 215 : base.h.toFixed(0);
   return `hsl(${matiz} ${sat}% ${luz}%)`;
 }
@@ -865,6 +891,11 @@ function statusDaArea(topo, ehSegundoTurno) {
   return pst === null ? "apuração em andamento" : `apuração em andamento (${pst}% das seções)`;
 }
 
+function corDoTopo(topo) {
+  if (temVotos(topo)) return corDoPartido(topo[0][0], topo[0][1]);
+  return topo && topo[0] ? MAPA_DISPUTA : MAPA_CINZA;
+}
+
 function ufsEm2Turno(m, cargo) {
   const porTurno = ((m.res || {})[cargo] || {})["2"] || {};
   return Object.keys(porTurno).map((u) => u.toUpperCase());
@@ -872,13 +903,7 @@ function ufsEm2Turno(m, cargo) {
 
 function areaVaiAo2Turno(info) {
   const lista = (MAPA_CTX && MAPA_CTX.em2Turno) || [];
-  const uf = String((info.tipo === "uf" ? info.uf : info.uf) || "").toUpperCase();
-  return lista.indexOf(uf) >= 0;
-}
-
-function corDoTopo(topo) {
-  if (temVotos(topo)) return corDoPartido(topo[0][0], topo[0][1]);
-  return topo && topo[0] ? MAPA_DISPUTA : MAPA_CINZA;
+  return lista.indexOf(String(info.uf || "").toUpperCase()) >= 0;
 }
 
 let _nomesMunicipios = null;
@@ -889,6 +914,98 @@ function nomeDoMunicipio(uf, codigo) {
     for (const item of DADOS.catalogo || []) _nomesMunicipios.set(item[0] + item[1], item[2]);
   }
   return _nomesMunicipios.get(String(uf).toLowerCase() + codigo) || codigo;
+}
+
+/* ---------- Hachura (vai ao 2º turno) ---------- */
+
+function defsHachura() {
+  return `<defs><pattern id="hachura-2t" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+    <line x1="0" y1="0" x2="0" y2="10" stroke="rgba(255,255,255,.85)" stroke-width="3"></line>
+    <line x1="5" y1="0" x2="5" y2="10" stroke="rgba(24,40,62,.38)" stroke-width="1.4"></line>
+  </pattern></defs>`;
+}
+
+/* ---------- Rótulos de apuração na imagem ---------- */
+
+function resumoDeApuracao(tops) {
+  let cem = 0, andamento = 0, sem = 0;
+  for (const topo of tops) {
+    const pst = apuracaoDe(topo);
+    if (pst === null || pst <= 0) sem += 1;
+    else if (pst >= 100) cem += 1;
+    else andamento += 1;
+  }
+  return { cem: cem, andamento: andamento, sem: sem };
+}
+
+function textoDaApuracao(topo) {
+  const pst = apuracaoDe(topo);
+  if (pst === null || pst <= 0) return "—";
+  return pst + "%";
+}
+
+/* Mostra o rótulo quando faz diferença: apuração parcial (em andamento) ou
+   quando o usuário pediu para ver todas. */
+function mostrarRotulo(topo) {
+  const pst = apuracaoDe(topo);
+  if (MAPA_ROTULOS) return pst !== null;
+  return pst !== null && pst > 0 && pst < 100;
+}
+
+function criarRotulo(svg, x, y, tamanho, texto) {
+  const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  t.setAttribute("class", "rotulo-mapa");
+  t.setAttribute("x", x.toFixed(1));
+  t.setAttribute("y", y.toFixed(1));
+  t.setAttribute("font-size", tamanho.toFixed(1));
+  t.setAttribute("text-anchor", "middle");
+  t.setAttribute("dominant-baseline", "middle");
+  t.textContent = texto;
+  svg.appendChild(t);
+}
+
+function aplicarRotulos() {
+  const svg = document.querySelector("svg.mapa-br");
+  if (!svg || !MAPA_CTX) return;
+  svg.querySelectorAll("text.rotulo-mapa").forEach((no) => no.remove());
+  for (const caminho of svg.querySelectorAll("path[data-chave]")) {
+    const info = MAPA_ALVOS[caminho.dataset.chave];
+    if (!info) continue;
+    const topo = MAPA_CACHE[info.chave] || info.topo;
+    if (!mostrarRotulo(topo)) continue;
+    let cx, cy, largura;
+    if (info.rotuloX !== undefined) {
+      cx = info.rotuloX;
+      cy = info.rotuloY;
+      largura = info.rotuloLargura || 60;
+    } else {
+      const caixa = caminho.getBBox();
+      if (caixa.width < 26 || caixa.height < 16) continue; // área pequena: fica só no balão
+      cx = caixa.x + caixa.width / 2;
+      cy = caixa.y + caixa.height / 2;
+      largura = caixa.width;
+    }
+    criarRotulo(svg, cx, cy, Math.max(8, Math.min(15, largura / 5.5)), textoDaApuracao(topo));
+  }
+}
+
+function alternarRotulos(ligado) {
+  MAPA_ROTULOS = !!ligado;
+  aplicarRotulos();
+}
+
+function controleDeRotulos(tops) {
+  const r = resumoDeApuracao(tops);
+  const partes = [];
+  if (r.andamento) partes.push(`<strong>${r.andamento}</strong> em andamento`);
+  if (r.cem) partes.push(`${r.cem} em 100%`);
+  if (r.sem) partes.push(`${r.sem} sem apuração`);
+  return `<div class="controle-rotulo">
+    <label><input type="checkbox" ${MAPA_ROTULOS ? "checked" : ""} onchange="alternarRotulos(this.checked)"> mostrar o % de apuração em todas as áreas</label>
+    <div class="dica" style="margin:4px 0 0">Apuração: ${partes.join(" • ") || "sem dados"}${
+      r.andamento ? "" : " — os rótulos aparecem sozinhos onde a contagem está em andamento"
+    }</div>
+  </div>`;
 }
 
 /* ---------- Balão ---------- */
@@ -1016,12 +1133,13 @@ async function buscarAoVivo(info) {
     info.topo = topo;
     info.buscando = false; // já temos o número novo: o balão não mostra mais "buscando"
     if (apuracaoEncerrada(topo)) MAPA_ENCERROU[info.chave] = true;
-    const alvo = document.querySelector(`path[data-chave="${info.chave}"]`);
-    if (alvo) alvo.setAttribute("fill", corDoTopo(topo));
+    const caminho = document.querySelector(`path[data-chave="${info.chave}"]`);
+    if (caminho) caminho.setAttribute("fill", corDoTopo(topo));
     if (info.indice !== undefined && MAPA_CTX && MAPA_CTX.resVetor) {
       MAPA_CTX.resVetor[info.indice] = topo;
     }
     if (MAPA_ATUAL === info) pintarBalao(info, posicao.x || 40, posicao.y || 40);
+    aplicarRotulos();
   } catch (e) {
     /* sem internet ou arquivo ainda não publicado: mantém o snapshot */
     if (typeof console !== "undefined") console.warn("mapa: não foi possível atualizar ao vivo", e);
@@ -1033,6 +1151,7 @@ async function buscarAoVivo(info) {
 function ligarMapa() {
   const svg = document.querySelector("svg.mapa-br");
   if (!svg) return;
+  aplicarRotulos();
   svg.addEventListener("pointermove", (ev) => {
     if (MAPA_TIPO_PONTEIRO === "touch") return;
     const alvo = ev.target.closest("path[data-chave]");
@@ -1139,14 +1258,18 @@ function legendaDeMapa(tops, totalUnidades, rotulo) {
 }
 
 function svgDoMapa(dados, recorte) {
-  const proj = (DADOS.mapa && DADOS.mapa.proj) || { largura: 1000, altura: 1000 };
+  const m = DADOS.mapa;
+  const proj = m.proj || { largura: 1000, altura: 1000 };
   const vb = proj.viewBox || [0, 0, proj.largura, proj.altura];
   const eleicao = eleicaoDoRecorte(recorte.cargo, recorte.turno);
-  const partes = [];
-  for (const uf of Object.keys(DADOS.mapa.uf).sort()) {
-    const geo = DADOS.mapa.uf[uf];
+  const lista2t = (MAPA_CTX && MAPA_CTX.em2Turno) || [];
+  const usarHachura = lista2t.length > 0 && lista2t.length < Object.keys(m.uf).length;
+  const partes = [defsHachura()];
+  for (const uf of Object.keys(m.uf).sort()) {
+    const geo = m.uf[uf];
     const topo = dados ? dados[uf] : null;
     const chave = "uf/" + uf;
+    const vaiAo2t = usarHachura && lista2t.indexOf(uf) >= 0;
     MAPA_ALVOS[chave] = {
       tipo: "uf",
       chave: chave,
@@ -1156,18 +1279,23 @@ function svgDoMapa(dados, recorte) {
       eleicao: eleicao,
       cargo: recorte.cargo,
       quantidade: 2,
+      rotuloX: geo.cx,
+      rotuloY: geo.cy,
+      rotuloLargura: geo.bb ? geo.bb[2] : 60,
     };
     const classe = !temVotos(topo) && topo && topo[0] ? "uf em-disputa" : "uf";
     partes.push(
       `<path class="${classe}" data-chave="${esc(chave)}" data-rota="#/mapa/${uf.toLowerCase()}" d="${esc(geo.p)}" fill="${corDoTopo(topo)}" role="link" aria-label="${esc(tituloDaArea(nomeDaUf(uf), topo))}"></path>`
     );
+    if (vaiAo2t) {
+      partes.push(`<path d="${esc(geo.p)}" fill="url(#hachura-2t)" pointer-events="none"></path>`);
+    }
   }
   return `<div class="mapa-caixa"><svg class="mapa-br" viewBox="${vb.join(" ")}" role="img" aria-label="Mapa do Brasil por estado">${partes.join("")}</svg></div>`;
 }
 
 function svgDosMunicipios(uf, dadosGeo, resVetor, recorte) {
   const eleicao = eleicaoDoRecorte(recorte.cargo, recorte.turno);
-  const quantidade = recorte.turno === "2" ? 2 : 2;
   const partes = [];
   const itens = dadosGeo.itens || [];
   for (let i = 0; i < itens.length; i += 1) {
@@ -1187,7 +1315,7 @@ function svgDosMunicipios(uf, dadosGeo, resVetor, recorte) {
         topo: topo,
         eleicao: eleicao,
         cargo: recorte.cargo,
-        quantidade: quantidade,
+        quantidade: 2,
       };
     }
     const classe = !temVotos(topo) && topo && topo[0] ? "uf em-disputa" : "uf";
@@ -1210,6 +1338,16 @@ function seletorDeEstados(uf) {
   </select></div>`;
 }
 
+function painelDeCores(tops, totalUnidades, rotulo, extra) {
+  return `<div class="painel">
+    <h3>Cores</h3>
+    <p class="dica" style="margin-top:0">Cada área recebe a cor do <strong>partido mais votado</strong>; a intensidade mostra o tamanho da maioria.</p>
+    ${legendaDeMapa(tops, totalUnidades, rotulo)}
+    ${extra || ""}
+    ${controleDeRotulos(tops)}
+  </div>`;
+}
+
 function viewMapa(params) {
   const m = DADOS.mapa;
   if (!m || !m.uf) return vazio('Sem mapa neste snapshot. Gere o arquivo novamente sem "--sem-mapa" para habilitar.');
@@ -1217,18 +1355,27 @@ function viewMapa(params) {
   const recorte = recorteDoMapa(params, "#/mapa");
   const dados = (recorte.porTurno || {})[recorte.turno] || {};
   const tops = Object.keys(dados).map((uf) => dados[uf]);
-  const emDisputa = Object.keys(dados).filter((uf) => dados[uf] && dados[uf][0] && !temVotos(dados[uf]));
+  const em2Turno = ufsEm2Turno(m, recorte.cargo);
+  const distingue2Turno = em2Turno.length > 0 && em2Turno.length < Object.keys(m.uf).length;
+  const eleitos = Object.keys(dados).filter((uf) => temVotos(dados[uf]) && dados[uf][0][1] > 50);
+  const nota2t = distingue2Turno
+    ? `<div class="legenda-mapa"><div class="linha"><span class="amostra-hachura"></span>hachurado = <strong>vai ao 2º turno</strong><span class="n">${em2Turno.length} estado(s)</span></div>
+       <div class="linha"><span class="amostra-cheio"></span>cor cheia = eleito no 1º turno<span class="n">${eleitos.length} estado(s)</span></div></div>`
+    : "";
   let nota = "";
   if (!tops.some(temVotos)) {
-    if (emDisputa.length) {
-      nota = `<p class="dica">${emDisputa.length} estado(s) em 2º turno (contorno tracejado no mapa): <strong>${emDisputa.join(", ")}</strong>. A apuração começa no dia da votação.</p>`;
+    const emDisputa = Object.keys(dados).filter((uf) => dados[uf] && dados[uf][0] && !temVotos(dados[uf]));
+    if (emDisputa.length && !distingue2Turno) {
+      nota = `<p class="dica">${emDisputa.length} estado(s) em 2º turno: <strong>${emDisputa.join(", ")}</strong>. A apuração começa no dia da votação.</p>`;
+    } else if (recorte.cargo === "3" && recorte.turno === "2") {
+      nota = distingue2Turno
+        ? `<p class="dica">2º turno para Governador em <strong>${em2Turno.join(", ")}</strong> (hachurado). A apuração começa no dia da votação.</p>`
+        : `<p class="dica">Nenhum estado teve 2º turno para Governador.</p>`;
     } else {
-      nota = recorte.cargo === "3" && recorte.turno === "2"
-        ? `<p class="dica">Nenhum estado teve 2º turno para Governador.</p>`
-        : `<p class="dica">Ainda não há votos apurados neste turno — a votação começa no dia da eleição.</p>`;
+      nota = `<p class="dica">Ainda não há votos apurados neste turno — a votação começa no dia da eleição.</p>`;
     }
   }
-  MAPA_CTX = { tipo: "uf", cargo: recorte.cargo, turno: recorte.turno, resVetor: null, em2Turno: ufsEm2Turno(m, recorte.cargo) };
+  MAPA_CTX = { tipo: "uf", cargo: recorte.cargo, turno: recorte.turno, resVetor: null, em2Turno: em2Turno };
   MAPA_ALVOS = {};
 
   return `<h2>Mapa do Brasil — ${esc(DADOS.cargos[recorte.cargo] || recorte.cargo)}</h2>
@@ -1239,11 +1386,7 @@ function viewMapa(params) {
     <div class="mapa-wrap">
       ${svgDoMapa(dados, recorte)}
       <div class="mapa-lado">
-        <div class="painel">
-          <h3>Cores</h3>
-          <p class="dica" style="margin-top:0">Cada estado recebe a cor do <strong>partido mais votado</strong>. A intensidade mostra o tamanho da maioria.</p>
-          ${legendaDeMapa(tops, Object.keys(m.uf).length, "estado(s)")}
-        </div>
+        ${painelDeCores(tops, Object.keys(m.uf).length, "estado(s)", nota2t)}
       </div>
     </div>
     <p class="dica">Passe o mouse (ou toque) em um estado para ver <strong>votação e apuração</strong>; clique para abrir o mapa dos municípios. Base: ${(m.proj || {}).nome === "albers" ? "projeção Albers" : "projeção"} • geometria IBGE.</p>`;
@@ -1264,15 +1407,23 @@ function viewMapaUf(ufBruto, params) {
   const resVetor = (((m.munres || {})[recorte.cargo] || {})[recorte.turno] || {})[uf.toUpperCase()] || [];
   const tops = resVetor.filter(Boolean);
   const total = (dadosGeo.itens || []).length;
-  const emDisputa = tops.filter((t) => t[0] && !temVotos(t)).length;
+  const em2Turno = ufsEm2Turno(m, recorte.cargo);
+  const distingue2Turno = em2Turno.length > 0 && em2Turno.length < Object.keys(m.uf).length;
   let nota = "";
   if (!resVetor.some(temVotos)) {
-    nota = recorte.turno === "2"
-      ? `<p class="dica">Nenhum município com votos apurados neste turno ainda${emDisputa ? " — o 2º turno está definido, mas a apuração começa no dia da votação" : ""}.</p>`
-      : `<p class="dica">Sem votos por município neste recorte.</p>`;
+    if (recorte.turno === "2") {
+      nota = distingue2Turno && em2Turno.indexOf(uf.toUpperCase()) >= 0
+        ? `<p class="dica">Este estado <strong>vai ao 2º turno</strong> para ${esc(DADOS.cargos[recorte.cargo] || recorte.cargo)}; a apuração começa no dia da votação.</p>`
+        : `<p class="dica">Nenhum município com votos apurados neste turno ainda.</p>`;
+    } else {
+      nota = `<p class="dica">Sem votos por município neste recorte.</p>`;
+    }
   }
-  MAPA_CTX = { tipo: "mun", uf: uf, cargo: recorte.cargo, turno: recorte.turno, resVetor: resVetor, em2Turno: ufsEm2Turno(m, recorte.cargo) };
+  MAPA_CTX = { tipo: "mun", uf: uf, cargo: recorte.cargo, turno: recorte.turno, resVetor: resVetor, em2Turno: em2Turno };
   MAPA_ALVOS = {};
+  const extra = distingue2Turno && em2Turno.indexOf(uf.toUpperCase()) >= 0
+    ? `<div class="legenda-mapa"><div class="linha"><span class="amostra-hachura"></span>este estado <strong>vai ao 2º turno</strong></div></div>`
+    : "";
 
   return `<h2>Mapa dos municípios — ${esc(nomeDaUf(uf))} (${esc(uf.toUpperCase())})</h2>
     <div class="abas">${recorte.abasCargo}</div>
@@ -1282,12 +1433,7 @@ function viewMapaUf(ufBruto, params) {
     <div class="mapa-wrap">
       ${svgDosMunicipios(uf, dadosGeo, resVetor, recorte)}
       <div class="mapa-lado">
-        <div class="painel">
-          <h3>Cores</h3>
-          <p class="dica" style="margin-top:0">Cada município recebe a cor do <strong>partido mais votado</strong>; a intensidade mostra o tamanho da maioria.</p>
-          ${legendaDeMapa(tops, total, "município(s)")}
-          ${seletorDeEstados(uf)}
-        </div>
+        ${painelDeCores(tops, total, "município(s)", extra + seletorDeEstados(uf))}
       </div>
     </div>
     <p class="dica">Passe o mouse (ou toque) em um município para ver <strong>votação e apuração</strong>; toque/clique de novo para abrir zonas e seções (${total} municípios neste mapa). ${voltar}</p>`;

@@ -45,6 +45,10 @@ python -m venv .venv
   número ao vivo com *debounce* de 280 ms e **para quando a apuração da área chega a 100%**
   (`MAPA_ENCERROU`). Vale saber: os `<path>` não têm `onclick` inline — a navegação e o balão
   são tratados por delegação em `ligarMapa()`, e no toque o 1º tap informa, o 2º abre.
+  A paleta (`CORES`) tem **matizes espaçados de propósito** (~40° no núcleo PL/PSD/PP/PODE/MDB/
+  REPUBLICANOS/UNIÃO/PSDB/PT) porque o tom claro e o cheio mantêm a matiz — cores próximas
+  (o antigo PL x PSD) ficavam indistinguíveis. Se mexer, confira a distância CIEDE2000.
+  Estado que vai ao 2º turno leva **hachura** (padrão de dois tons, sobre a cor do partido).
 - `services/` — busca de município (EA12) e orquestração de votos/seções.
 - `cli.py` — argparse + menus rich. `models.py` — dataclasses.
 
@@ -88,6 +92,7 @@ python -m venv .venv
 Implementado: resultados ao vivo (BR/UF/município/zona), seções com status via EA18, votos por seção via BU,
 artefato HTML offline (Brasil/estados/municípios/seções/congresso) e **mapa do Brasil** com estados e
 **municípios dos 5.571 municípios** (Governador e Presidente, 1º e 2º turno, cor pelo mais votado +
-intensidade pela maioria) e **balão com votação e apuração** (embutida + ao vivo, parando em 100%).
+intensidade pela maioria, **hachura** onde vai ao 2º turno) e **balão + rótulos com votação e apuração**
+(embutida + ao vivo, parando em 100%).
 Pendente: módulo de candidatos/bens (CSV `consulta_cand_2026.zip`/`bem_candidato_2026.zip`), finanças,
 dashboard web. Dados de produção podem ficar zerados até a totalização avançar; use `selftest`.

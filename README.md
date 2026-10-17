@@ -19,15 +19,18 @@ O site tem ainda:
 - **Mapa do Brasil**: Governador e Presidente por estado **e por município** (clique no
   estado para abrir o mapa municipal), colorido pelo **partido mais votado** com
   intensidade pelo **tamanho da maioria** (% do líder sobre os votos válidos, escala
-  fixa 30% → 70%+), com alternador de **1º/2º turno**. No 2º turno os estados em
-  disputa aparecem com contorno tracejado antes da apuração. Todos os 5.571 municípios
-  vêm embutidos (funciona offline).
-- **Balão de informações**: passar o mouse (ou tocar, no celular — o primeiro toque
-  informa e o segundo abre) mostra o líder, os votos, o % dos válidos, o 2º colocado e
-  o **% de apuração** (seções totalizadas), com o status ("apuração em andamento",
-  "eleito com X%", "vai ao 2º turno"). Com internet o número é buscado de novo no TSE
-  na hora — e **para de buscar quando a apuração daquela área encerra (100%)**. No
-  1º turno, que já está totalizado, isso significa zero requisições.
+  fixa 30% → 70%+), com alternador de **1º/2º turno**. Estados **hachurados** são os que
+  vão ao **2º turno** (com a contagem de quantos já elegeram no 1º turno). A paleta tem
+  matizes espaçados de propósito, para PL/PSD/PSDB e PP/PODE/MDB não se confundirem.
+  Todos os 5.571 municípios vêm embutidos (funciona offline).
+- **Balão + rótulos de apuração**: passar o mouse (ou tocar, no celular — o primeiro
+  toque informa e o segundo abre) mostra líder, votos, % dos válidos, 2º colocado e o
+  **% de apuração** (seções totalizadas), com o status ("apuração em andamento",
+  "eleito com X%", "vai ao 2º turno"). Há também uma opção para **mostrar o % de
+  apuração escrito no mapa**; onde a contagem está em andamento os rótulos aparecem
+  sozinhos. Com internet o número é buscado de novo no TSE na hora — e **para de buscar
+  quando a apuração daquela área encerra (100%)**. No 1º turno, que já está totalizado,
+  isso significa zero requisições.
 - **Busca ao vivo**: qualquer município do Brasil (ex.: Niterói, Rio de Janeiro) é
   buscado na hora no TSE (Brasil, estado, município e zonas). Votos por seção/urna
   ficam disponíveis apenas para os municípios embutidos no arquivo.
