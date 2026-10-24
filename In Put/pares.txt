@@ -1,0 +1,11 @@
+# Lista de pares para `eleitor correlacao --modo focado`
+# Formato: Cargo:numero ; Cargo:numero
+# As linhas começando com # são ignoradas.
+#
+# Exemplos (descomente e ajuste):
+# Deputado Federal:2200 ; Deputado Estadual:22100
+# Deputado Federal:1500 ; Deputado Estadual:15112
+# Deputado Federal:1321 ; Deputado Estadual:13500
+# Deputado Federal:2255 ; Deputado Estadual:22555
+#
+# Também aceita Senador:222 ; Senador:200 (2 votos por eleitor).

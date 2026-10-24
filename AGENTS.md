@@ -3,13 +3,14 @@
 ## Visão geral
 CLI Python (`eleitor`) para acompanhar as Eleições 2026 do TSE em tempo real: resultado por
 município/zona/seção (BU binário ASN.1) e site HTML offline (resultados, mapa e finanças).
-Stack: Python >=3.10, `httpx`, `rich`, `asn1tools`, `numpy`. Código em `src/eleitor/`; testes em `tests/`.
+Stack: Python >=3.10, `httpx`, `rich`, `asn1tools`, `openpyxl`, `Pillow`, `numpy`.
+Código em `src/eleitor/`; testes em `tests/`.
 
 ## Comandos
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -e ".[dev]"
-.venv\Scripts\python -m pytest                    # ~0,4s, sem rede
+.venv\Scripts\python -m pytest                    # rápido, sem rede
 .venv\Scripts\eleitor                             # menu interativo
 .venv\Scripts\eleitor buscar Parauapebas --uf pa --cargo governador
 .venv\Scripts\eleitor secoes Parauapebas --uf pa --zona 75
@@ -33,7 +34,8 @@ publicar-mapa.bat                                 # gera e publica em /mapa/para
     --out "In Put" --html "In Put\focado_parauapebas_2026.html"
                                                   # relatório focado por par (p focado, FDR, benchmark, limites)
 ```
-Publicar o site: duplo clique em `publicar.bat` (gera o HTML e faz push na branch `gh-pages`).
+Publicar o site nacional: duplo clique em `publicar.bat` (gera o HTML e faz push na `gh-pages`).
+Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/Google e publica em `/mapa/parauapebas/`).
 
 ## Mapa do código
 - `config.py` — códigos de 2026, cargos, TTLs (fonte de verdade).
@@ -143,7 +145,8 @@ Pronto: resultados ao vivo (BR/UF/município/zona), seções via EA18, votos por
 partido + maioria, hachura no 2º turno, balão com votação/apuração), **finanças** (CLI `eleitor financas` + aba
 `#/ranking`; ~16.962 candidatos, dados parciais), **mapa por local de votação** (CLI `eleitor mapa-urnas` +
 `In Put/mapa_eleitoral_parauapebas_2026.html`: 55 locais, 586 urnas, comparação A×B por cargo em Leaflet com
-fundo OSM offline embutido e ruas Esri online; publicado em `/mapa/parauapebas/`), **exportação Google** (CLI
+fundo OSM offline embutido e ruas Esri online; publicado em
+`https://angelojordy-svg.github.io/eleitor-2026/mapa/parauapebas/`), **exportação Google** (CLI
 `eleitor mapa-google` + `In Put/google/`: KML combinado com 5 pastas, KML plano e CSV por cargo para Google
 Earth/My Maps), **correlação/co-votação** (CLI `eleitor correlacao` + CSV +
 `render/correlacao.html`: matriz -1..1, within-local, bloco PC1, limites determinísticos e Goodman) e
