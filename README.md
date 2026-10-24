@@ -117,6 +117,72 @@ Importante: **F5 não atualiza** (o arquivo contém os dados embutidos). Use o b
 O cache local fica em `%LOCALAPPDATA%\eleitor\cache` (pode ser alterado com `ELEITOR_CACHE_DIR`).
 O cliente respeita o limite de 100 req/s do TSE com intervalo mínimo entre requisições e usa ETag/304.
 
+## Mapa por local de votação (planilha de BUs)
+
+A partir da planilha de BUs de um município, o comando `mapa-urnas` gera um HTML
+interativo (Leaflet) com **um círculo por local de votação**, comparação A×B,
+ranking, tabela e as urnas/seções de cada local. O fundo é um **mosaico OSM
+embutido** (funciona sem internet); as opções online são **Ruas (Esri)**,
+**Satélite (Esri)** e **Sem mapa base**.
+
+```powershell
+.venv\Scripts\eleitor mapa-urnas --xlsx "In Put\boletim_urna_parauapebas_2026_z75_z106_com_locais.xlsx"
+```
+
+Saídas: `mapa_eleitoral_<municipio>_<ano>.html`, `google/*.kml` (Google Earth) e
+`google/*_my_maps.csv` (Google My Maps). Flags: `--sem-fundo-offline`,
+`--refazer-fundo`, `--zoom-fundo`, `--zoom-detalhe`, `--raio-detalhe`, `--qualidade`,
+`--google-dir`.
+
+Para um confronto específico no KML/CSV:
+
+```powershell
+.venv\Scripts\eleitor mapa-google --xlsx "In Put\boletim_urna_parauapebas_2026_z75_z106_com_locais.xlsx" `
+    --cargo governador --a 20 --b 15 --modo diferenca
+```
+
+Publicação: `publicar-mapa.bat` gera e publica em
+`https://angelojordy-svg.github.io/eleitor-2026/mapa/parauapebas/`. Instruções
+detalhadas para Google Earth/My Maps em `In Put\LEIA-ME_MAPA.md`.
+
+## Correlação e co-votação (planilha de BUs)
+
+A partir da planilha de boletins de urna, o comando `correlacao` mede a associação
+ecológica entre candidatos (matriz de −1 a 1, por urna e por local) e calcula os
+limites determinísticos de co-votação:
+
+```powershell
+.venv\Scripts\eleitor correlacao --xlsx "In Put\boletim_urna_parauapebas_2026_z75_z106_com_locais.xlsx" `
+    --modo ambos --top 20 --bootstrap 1000 --out "In Put" --html "In Put\correlacao.html"
+```
+
+Saídas: `correlacao_<municipio>_<ano>.csv` (pares), `..._matriz.csv` (within-local),
+`..._bruto.csv`, `..._bloco.csv`, `covotacao_<municipio>_<ano>.csv` e, com `--html`,
+um relatório standalone com heatmap e tabelas. A correlação é **entre lugares**, não
+entre pessoas: não prova transferência individual. A co-votação só é reportada como
+identificada quando os limites são estreitos; caso contrário o resultado correto é
+“não identificado”. O n efetivo é o número de locais (55 em Parauapebas), não o
+número de urnas (586).
+
+Para analisar pares específicos, use o modo focado e o “espaço aberto”
+`In Put/pares.txt`:
+
+```powershell
+.venv\Scripts\eleitor correlacao --xlsx "In Put\boletim_urna_parauapebas_2026_z75_z106_com_locais.xlsx" `
+    --modo focado --pares-arquivo "In Put\pares.txt" --bootstrap 2000 --permutacoes 5000 `
+    --out "In Put" --html "In Put\focado_parauapebas_2026.html"
+```
+
+O arquivo `pares.txt` aceita uma linha por par, no formato
+`Cargo:numero ; Cargo:numero` (linhas com `#` são ignoradas). O template vem com
+exemplos comentados: descomente/ajuste antes de rodar. Também dá para passar
+direto: `--pares "Deputado Federal:2200; Deputado Estadual:22100"`. Saídas:
+`focado_<municipio>_<ano>.csv` (métricas), `..._locais.csv` (limites por local),
+`..._benchmark.csv` e um HTML com dispersão local, resíduos within-local,
+histograma de benchmark e limites por local. O relatório mostra p-permutação focado,
+q-FDR global/focado, percentil de benchmark e leave-one-local-out; a co-votação
+individual continua limitada pelos mesmos limites determinísticos.
+
 ## Testes
 
 ```powershell

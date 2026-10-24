@@ -3,7 +3,7 @@
 ## Visão geral
 CLI Python (`eleitor`) para acompanhar as Eleições 2026 do TSE em tempo real: resultado por
 município/zona/seção (BU binário ASN.1) e site HTML offline (resultados, mapa e finanças).
-Stack: Python >=3.10, `httpx`, `rich`, `asn1tools`. Código em `src/eleitor/`; testes em `tests/`.
+Stack: Python >=3.10, `httpx`, `rich`, `asn1tools`, `numpy`. Código em `src/eleitor/`; testes em `tests/`.
 
 ## Comandos
 ```powershell
@@ -20,6 +20,18 @@ python -m venv .venv
 .venv\Scripts\eleitor mapa --cargo governador --turno 1 --ritmo 0.04 --workers 10
 .venv\Scripts\eleitor financas --cargo governador --ordenar gasto
 .venv\Scripts\eleitor selftest                    # smoke test com a API real
+.venv\Scripts\eleitor mapa-urnas --xlsx "In Put\boletim_urna_parauapebas_2026_z75_z106_com_locais.xlsx"
+                                                  # HTML + fundo OSM offline + KML/CSV Google (In Put\google)
+.venv\Scripts\eleitor mapa-google --xlsx "In Put\boletim_urna_parauapebas_2026_z75_z106_com_locais.xlsx"
+                                                  # KML (Google Earth) + CSV/KML (Google My Maps) em In Put\google
+publicar-mapa.bat                                 # gera e publica em /mapa/parauapebas/ (gh-pages)
+.venv\Scripts\eleitor correlacao --xlsx "In Put\boletim_urna_parauapebas_2026_z75_z106_com_locais.xlsx" `
+    --modo ambos --top 20 --bootstrap 1000 --out "In Put" --html "In Put\correlacao.html"
+                                                  # matriz -1..1 + limites de co-votação + HTML
+.venv\Scripts\eleitor correlacao --xlsx "In Put\boletim_urna_parauapebas_2026_z75_z106_com_locais.xlsx" `
+    --modo focado --pares-arquivo "In Put\pares.txt" --bootstrap 2000 --permutacoes 5000 `
+    --out "In Put" --html "In Put\focado_parauapebas_2026.html"
+                                                  # relatório focado por par (p focado, FDR, benchmark, limites)
 ```
 Publicar o site: duplo clique em `publicar.bat` (gera o HTML e faz push na branch `gh-pages`).
 
@@ -39,6 +51,28 @@ Publicar o site: duplo clique em `publicar.bat` (gera o HTML e faz push na branc
   `VERSAO_BAKE` força recálculo; guarda `ufs` p/ não confundir bake parcial com nacional).
 - `services/snapshot.py` — dados do HTML offline (Brasil/estados/municípios/seções/fotos/mapa/geometria e finanças).
   Finanças = vetores alinhados (`colunas`+`itens`); votos por `SQ_CANDIDATO` da EA20 (Presidente = nacional, estaduais = por UF).
+- `sources/planilha.py` — lê a planilha de BUs com `openpyxl` (Leia-me, Locais, Índice das urnas, Resumo por urna,
+  Dados completos). Normaliza cabeçalhos sem acento; devolve dataclasses (`LocalVotacao`, `Urna`, `ResumoUrna`, `Voto`).
+- `services/mapa_urnas.py` — agrega urna → local pela chave **zona + código** e monta a matriz `votos[local][candidato]`
+  por cargo; `conferir_planilha()` valida resumo × linhas de votos; `render/mapa_urnas.html` é o mapa Leaflet.
+- `services/exportar_google.py` — KML (Google Earth: pastas por cargo, balão HTML, ícone colorido/tamanho) e
+  CSV/KML plano por cargo (Google My Maps: colunas A/B, vencedor, margem e `Faixa` para estilizar).
+- `services/fundo_offline.py` — mosaico OSM (z12 município + z15 urbano) costurado com Pillow, cache em
+  `%LOCALAPPDATA%\eleitor\fundo` e fallback para Esri Street; vira `L.imageOverlay` embutido no HTML.
+- `docs/mapa-eleitoral-google.md` — detalhamento das fases OSM, Google e publicação.
+- `mapa-index.html` + `publicar-mapa.bat` — índice de cidades e publicação em `gh-pages` via worktree.
+- `services/correlacao.py` — matriz de correlação ecológica (log-ratio/ALR, within-local, PC1 dos demais
+  candidatos como bloco), limites determinísticos de co-votação, Goodman, bootstrap de clusters por local e BH-FDR.
+  Também tem o modo focado: `parse_par`/`ler_pares_arquivo`, `resolver_pares`, `analisar_pares_focados`,
+  `bootstrap_par`, `permutacao_par`, `leave_one_local_out`, `_agregados_por_local`, `benchmark` e CSV/HTML.
+- `render/correlacao.html` — relatório standalone (heatmap, top pares, tabela de limites); `render_correlacao()`.
+- `render/focado.html` + `render/focado.py` — relatório focado estático (SVG de dispersão local, resíduos
+  within-local, histograma de benchmark e limites por local); `render_focado()`.
+- `In Put/pares.txt` — template do “espaço aberto” de pares (`Cargo:numero ; Cargo:numero`); criado pelo modo
+  focado quando não há lista.
+- `render/vendor/leaflet/` — Leaflet 1.9.4 (BSD-2) **embutido** no HTML por `render_mapa_urnas()` (sem CDN/unpkg).
+  Mapa base: **offline embutido (padrão)**, **Ruas (Esri)**, **Satélite (Esri)** ou nenhum; `tileerror` avisa 403.
+  **CARTO não usar** (chave desde 25/09/2026) e **OSM online não usar na rede do usuário** (bloqueado).
 - `render/` — `html.py` + `template.html` (artefato único, navegação por hash, página de candidato, botão "Atualizar online",
   aba `#/ranking` de gastos via `viewRanking()`, balão do mapa via `ligarMapa()`).
 - `cli.py` — argparse + menus rich. `models.py` — dataclasses.
@@ -85,10 +119,35 @@ Publicar o site: duplo clique em `publicar.bat` (gera o HTML e faz push na branc
   EA20 (`s.pst`); o blob atualiza ao vivo só enquanto `apuracao% < 100`.
 - Boa Esperança do Norte/MT (IBGE 5101837) é novo e sem malha no IBGE: fica fora do mapa municipal.
 
+## Fatos estatísticos (correlação / co-votação)
+- A unidade é a **urna**; o cluster é o **local** (55 em Parauapebas). A ICC das shares é ~0,98: o n efetivo é
+  ~55, não 586. p-valores,q e ICs usam o n efetivo; nunca tratar urnas como independentes.
+- **Correlação ecológica ≠ transferência individual.** O voto secreto só entrega marginais; a tabela conjunta
+  “votou em A e em B” não é observada (falácia ecológica). Use “associação/apoio compartilhado”, não “transferência”.
+- Co-votação: limites determinísticos `L=max(0,a+b−N)`, `U=min(a,b)`; `P(B|A)∈[L/a,U/a]`. Em Parauapebas 2026,
+  **nenhum par** ficou informativo (larguras ≥81%); os dados não identificam co-votação individual.
+- `r_bloco` controla o **PC1 dos demais candidatos calculado sem o próprio par** (leave-one-pair-out), com sinal
+  alinhado ao voto presidencial. Não usar o próprio par para definir o bloco (gera correlação mecânica).
+- Senador tem 2 votos por eleitor: não comparar “share de Senado” com “share de Governador”; use votos por eleitor
+  ou o denominador de válidos do próprio cargo.
+- Pares do mesmo cargo (fora Senador) são **substitutos** (a soma 1 força correlação negativa); não interpretar como
+  transferência. Nomes da planilha podem vir com `�` (encoding); use número/partido como chave.
+- Modo focado: p-permutação **within-local** para pares pré-especificados, q-FDR global/focado, benchmark de pares
+  (fed×est, same-party ou todos), leave-one-local-out e limites por local. Em Hipólito (Est 22100) × Caveira
+  (Fed 2200): `r_dentro≈0,379`, bootstrap [0,31;0,45], `p_perm≈0,0002`, `q_global≈0,087`; limites
+  `P(Hipólito|Caveira)=0–100%`; nenhum local identifica co-votação.
+
 ## Estado atual
 Pronto: resultados ao vivo (BR/UF/município/zona), seções via EA18, votos por seção via BU, artefato HTML offline
 (Brasil/estados/municípios/seções/congresso), mapa do Brasil (estados + 5.571 municípios, 1º/2º turno, cor por
-partido + maioria, hachura no 2º turno, balão com votação/apuração) e **finanças** (CLI `eleitor financas` + aba
-`#/ranking`; ~16.962 candidatos, dados parciais).
-Pendente: refinos das finanças (export CSV, quebra FP/FEFC no detalhe do candidato), dashboard web.
+partido + maioria, hachura no 2º turno, balão com votação/apuração), **finanças** (CLI `eleitor financas` + aba
+`#/ranking`; ~16.962 candidatos, dados parciais), **mapa por local de votação** (CLI `eleitor mapa-urnas` +
+`In Put/mapa_eleitoral_parauapebas_2026.html`: 55 locais, 586 urnas, comparação A×B por cargo em Leaflet com
+fundo OSM offline embutido e ruas Esri online; publicado em `/mapa/parauapebas/`), **exportação Google** (CLI
+`eleitor mapa-google` + `In Put/google/`: KML combinado com 5 pastas, KML plano e CSV por cargo para Google
+Earth/My Maps), **correlação/co-votação** (CLI `eleitor correlacao` + CSV +
+`render/correlacao.html`: matriz -1..1, within-local, bloco PC1, limites determinísticos e Goodman) e
+**relatório focado** (CLI `--modo focado` + `In Put/pares.txt` + `render/focado.html`: bootstrap,
+permutação, benchmark, LOO e limites por local). Pendente: refinos das finanças (export CSV, quebra FP/FEFC
+no detalhe do candidato), dashboard web, EI de King (fase 2, opcional) e painel 2022→2026 (fase 3, opcional).
 Dados de produção podem ficar zerados até a totalização avançar; use `selftest`.

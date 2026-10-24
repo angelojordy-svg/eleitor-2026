@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapas eleitorais por município — 2026</title>
+<style>
+  :root { --azul:#0b3a66; --azul-claro:#1f6fb2; --fundo:#eef2f6; --texto:#17253a; --suave:#5b6b7c; --linha:#dbe4ee; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif; background:var(--fundo); color:var(--texto); }
+  header { background:linear-gradient(135deg,var(--azul),var(--azul-claro)); color:#fff; padding:28px 22px; }
+  header h1 { margin:0; font-size:24px; }
+  header p { margin:6px 0 0; opacity:.92; font-size:14px; }
+  main { max-width:900px; margin:0 auto; padding:24px 18px 40px; }
+  .card { display:block; background:#fff; border:1px solid var(--linha); border-radius:14px; padding:18px 20px; text-decoration:none; color:inherit; box-shadow:0 8px 24px rgba(15,39,66,.08); }
+  .card:hover { border-color:#a9bfd6; transform:translateY(-1px); }
+  .card .uf { display:inline-block; background:var(--azul); color:#fff; border-radius:999px; padding:2px 9px; font-size:11px; font-weight:800; letter-spacing:.06em; }
+  .card h2 { margin:8px 0 4px; font-size:19px; }
+  .card p { margin:2px 0; color:var(--suave); font-size:13px; }
+  .card .dica { color:var(--texto); margin-top:8px; }
+  footer { max-width:900px; margin:0 auto; padding:0 18px 30px; font-size:13px; }
+  footer a { color:var(--azul-claro); font-weight:700; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Mapas eleitorais por município</h1>
+  <p>Resultados por local de votação — Eleições 2026 (TSE · Boletim de Urna)</p>
+</header>
+<main>
+  <a class="card" href="parauapebas/">
+    <span class="uf">PA</span>
+    <h2>Parauapebas/PA</h2>
+    <p>55 locais de votação · 586 urnas · 200.942 eleitores aptos</p>
+    <p class="dica">Compare dois candidatos no mapa, veja as urnas de cada local e baixe KML/CSV para Google Earth e My Maps.</p>
+  </a>
+</main>
+<footer>
+  <a href="../">Site nacional — resultados por estado e município</a>
+</footer>
+</body>
+</html>

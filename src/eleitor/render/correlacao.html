@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Correlação ecológica — eleitor</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --tinta: #17202a;
+    --fraco: #5d6d7e;
+    --linha: #d5dbdb;
+    --azul: #2471a3;
+    --vermelho: #c0392b;
+    --amarelo: #f7dc6f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--tinta);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header, main, footer { max-width: 1280px; margin: 0 auto; padding: 0 20px; }
+  header { padding-top: 28px; }
+  h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: -0.02em; }
+  h2 { margin: 28px 0 8px; font-size: 19px; }
+  .subtitulo { margin: 0; color: var(--fraco); }
+  .aviso {
+    margin: 18px 0 0;
+    padding: 14px 16px;
+    border-left: 5px solid var(--amarelo);
+    background: #fffdf0;
+    border-radius: 8px;
+  }
+  .aviso strong { font-weight: 700; }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin-top: 18px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--linha);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .card .valor { font-size: 24px; font-weight: 700; }
+  .card .rotulo { color: var(--fraco); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .nota { color: var(--fraco); font-size: 13px; margin: 4px 0 10px; }
+  .painel {
+    background: var(--card);
+    border: 1px solid var(--linha);
+    border-radius: 10px;
+    padding: 14px;
+    overflow: auto;
+  }
+  .controles { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  select, button {
+    font: inherit;
+    padding: 6px 9px;
+    border: 1px solid var(--linha);
+    border-radius: 6px;
+    background: #fff;
+  }
+  .heatmap-wrap { overflow: auto; max-height: 72vh; }
+  table { border-collapse: collapse; }
+  #heatmap { font-size: 11px; }
+  #heatmap th, #heatmap td { width: 24px; height: 24px; padding: 0; }
+  #heatmap th.rot {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    height: 150px;
+    max-height: 150px;
+    vertical-align: bottom;
+    font-weight: 500;
+    color: var(--fraco);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #heatmap th.linha {
+    text-align: left;
+    max-width: 210px;
+    width: 210px;
+    padding-right: 8px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--fraco);
+  }
+  #heatmap td { border: 1px solid rgba(255,255,255,.6); cursor: help; }
+  .legenda { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--fraco); margin-top: 8px; }
+  .gradiente {
+    width: 180px; height: 10px; border-radius: 5px;
+    background: linear-gradient(90deg, #c0392b, #ffffff, #2471a3);
+    border: 1px solid var(--linha);
+  }
+  table.dados { width: 100%; font-size: 13px; }
+  table.dados th, table.dados td {
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--linha);
+    text-align: left;
+    vertical-align: top;
+  }
+  table.dados th { position: sticky; top: 0; background: var(--card); z-index: 1; }
+  table.dados td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: #eef2f5;
+    color: #34495e;
+    white-space: nowrap;
+  }
+  .tag.forte { background: #e8f6ef; color: #1e8449; }
+  .tag.indeterminado { background: #fdecea; color: #a93226; }
+  .tag.informativo { background: #e8f6ef; color: #1e8449; }
+  .tag.parcial { background: #fef5e7; color: #9c640c; }
+  .tag.substituto { background: #f4f6f7; color: #566573; }
+  footer { color: var(--fraco); font-size: 12px; padding: 28px 20px 40px; }
+  code { background: #eef2f5; padding: 1px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Correlação ecológica e co-votação</h1>
+  <p class="subtitulo" id="subtitulo"></p>
+</header>
+
+<main>
+  <div class="aviso">
+    <strong>Leia com cuidado.</strong> A correlação é entre <em>lugares</em> (urnas e locais),
+    não entre pessoas. Ela não prova que o eleitor de A votou em B nem que houve
+    transferência de votos. A co-votação individual só é identificada quando os limites
+    determinísticos são estreitos; caso contrário, o resultado correto é
+    <em>“não identificado”</em>.
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <section>
+    <h2>Mapa de calor</h2>
+    <div class="painel">
+      <div class="controles">
+        <label for="metodo">Correlação:</label>
+        <select id="metodo">
+          <option value="bloco">within-local + bloco (PC1 dos demais)</option>
+          <option value="dentro">within-local</option>
+        </select>
+        <span class="nota" id="legenda-metodo"></span>
+      </div>
+      <div class="heatmap-wrap"><table id="heatmap"></table></div>
+      <div class="legenda">
+        <span>−1</span><span class="gradiente"></span><span>+1</span>
+        <span>— cinza = indefinido</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Top correlações</h2>
+    <p class="nota">
+      <code>r bruto</code> = entre urnas; <code>r dentro</code> = após remover a média do local;
+      <code>r bloco</code> = após remover também o primeiro componente dos demais candidatos.
+      IC95% e q-valor usam o número efetivo de locais, não o número de urnas.
+      Pares do mesmo cargo (fora Senador) são <strong>substitutos</strong>: a soma 1
+      força correlação negativa; eles aparecem no fim, com flag <code>substituto</code>.
+    </p>
+    <div class="painel">
+      <table class="dados" id="tabela-corr">
+        <thead>
+          <tr>
+            <th>A</th><th>B</th><th>r bruto</th><th>r dentro</th><th>r bloco</th>
+            <th>IC95 dentro</th><th>q dentro</th><th>q bloco</th><th>flag</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Limites de co-votação</h2>
+    <p class="nota" id="resumo-covot"></p>
+    <div class="painel">
+      <table class="dados" id="tabela-covot">
+        <thead>
+          <tr>
+            <th>A</th><th>B</th><th>P(B|A)</th><th>P(A|B)</th>
+            <th>largura</th><th>Goodman P(B|A)</th><th>flag</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>
+    Fonte: planilha de boletins de urna (BU) do TSE. A unidade é a urna; os locais são
+    usados como clusters. <code>r bloco</code> controla o PC1 dos demais candidatos
+    (leave-one-pair-out), com sinal alinhado ao voto presidencial. Goodman é uma
+    regressão ecológica de referência; estimativas fora de [0,1] são marcadas com “!”.
+  </p>
+  <p>Gerado por <code>eleitor correlacao</code>. Números parciais/definitivos conforme a planilha.</p>
+</footer>
+
+<script>
+const DADOS = /*__DADOS__*/;
+
+const fmt = (v, casas = 3) => {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+  const n = Number(v);
+  return (n >= 0 ? "+" : "") + n.toFixed(casas).replace(".", ",");
+};
+const pct = (v) => {
+  if (v === null || v === undefined || Number.isNaN(Number(v))) return "—";
+  return (Number(v) * 100).toFixed(0).replace(".", ",") + "%";
+};
+const cor = (r) => {
+  if (r === null || r === undefined || Number.isNaN(Number(r))) return "#e5e8e8";
+  const t = Math.max(-1, Math.min(1, Number(r)));
+  const alvo = t >= 0 ? [36, 113, 163] : [192, 57, 43];
+  const k = Math.abs(t);
+  const mistura = (a, b) => Math.round(a * (1 - k) + b * k);
+  const rgb = [mistura(255, alvo[0]), mistura(255, alvo[1]), mistura(255, alvo[2])];
+  return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+};
+const el = (tag, texto, classe) => {
+  const no = document.createElement(tag);
+  if (texto !== undefined && texto !== null) no.textContent = texto;
+  if (classe) no.className = classe;
+  return no;
+};
+
+function renderCabecalho() {
+  const m = DADOS.meta;
+  document.title = `Correlação ecológica — ${m.municipio || "município"}`;
+  document.getElementById("subtitulo").textContent =
+    `${m.municipio || "município"} · ${m.ano || ""} · ${m.n_urnas} urnas · ${m.n_locais} locais`;
+  const cards = document.getElementById("cards");
+  const itens = [
+    [m.n_urnas, "urnas"],
+    [m.n_locais, "locais (clusters)"],
+    [m.n_eff, "n efetivo"],
+    [m.n_candidatos, "candidatos"],
+    [m.resumo_covotacao ? m.resumo_covotacao.informativo : 0, "pares informativos"],
+  ];
+  for (const [valor, rotulo] of itens) {
+    const card = el("div", null, "card");
+    card.appendChild(el("div", String(valor), "valor"));
+    card.appendChild(el("div", rotulo, "rotulo"));
+    cards.appendChild(card);
+  }
+}
+
+function renderHeatmap(metodo) {
+  const tabela = document.getElementById("heatmap");
+  tabela.textContent = "";
+  const dados = metodo === "bloco" ? DADOS.matriz_bloco : DADOS.matriz_dentro;
+  const candidatos = DADOS.candidatos;
+  const thead = document.createElement("thead");
+  const tr = document.createElement("tr");
+  tr.appendChild(el("th", ""));
+  for (const cand of candidatos) {
+    const th = el("th", cand.curto, "rot");
+    th.title = cand.rotulo;
+    tr.appendChild(th);
+  }
+  thead.appendChild(tr);
+  tabela.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (let i = 0; i < candidatos.length; i++) {
+    const linha = document.createElement("tr");
+    const th = el("th", candidatos[i].curto, "linha");
+    th.title = candidatos[i].rotulo;
+    linha.appendChild(th);
+    for (let j = 0; j < candidatos.length; j++) {
+      const valor = dados[i] ? dados[i][j] : null;
+      const td = el("td");
+      td.style.background = cor(valor);
+      td.title = `${candidatos[i].rotulo} × ${candidatos[j].rotulo}: ${fmt(valor)}`;
+      if (valor !== null && Math.abs(valor) > 0.55) {
+        td.style.color = "#fff";
+      }
+      linha.appendChild(td);
+    }
+    tbody.appendChild(linha);
+  }
+  tabela.appendChild(tbody);
+
+  const legenda = document.getElementById("legenda-metodo");
+  if (metodo !== "bloco") {
+    legenda.textContent = "Controle apenas do local (média ponderada do local).";
+  } else if (DADOS.meta.bloco_por_par) {
+    legenda.textContent =
+      "Controle do bloco: PC1 dos demais candidatos, calculado sem o próprio par.";
+  } else {
+    legenda.textContent =
+      `Bloco fixo (${DADOS.meta.bloco_metodo}); pares que definem o bloco ficam indefinidos.`;
+  }
+}
+
+function preencherCorrelacoes() {
+  const corpo = document.querySelector("#tabela-corr tbody");
+  corpo.textContent = "";
+  for (const par of DADOS.correlacoes) {
+    const tr = document.createElement("tr");
+    tr.appendChild(el("td", par.a));
+    tr.appendChild(el("td", par.b));
+    tr.appendChild(el("td", fmt(par.r_bruto), "num"));
+    tr.appendChild(el("td", fmt(par.r_dentro), "num"));
+    tr.appendChild(el("td", fmt(par.r_bloco), "num"));
+    const ic = (par.ic_inf === null || par.ic_sup === null)
+      ? "—"
+      : `[${fmt(par.ic_inf, 2)}; ${fmt(par.ic_sup, 2)}]`;
+    tr.appendChild(el("td", ic, "num"));
+    tr.appendChild(el("td", par.q_dentro === null ? "—" : Number(par.q_dentro).toExponential(2), "num"));
+    tr.appendChild(el("td", par.q_bloco === null || par.q_bloco === undefined ? "—" : Number(par.q_bloco).toExponential(2), "num"));
+    const tag = el("span", par.flag || "—", "tag " + (par.flag || ""));
+    const td = el("td");
+    td.appendChild(tag);
+    tr.appendChild(td);
+    corpo.appendChild(tr);
+  }
+}
+
+function preencherCovotacao() {
+  const resumo = DADOS.meta.resumo_covotacao || {};
+  const texto = document.getElementById("resumo-covot");
+  if (!resumo.total) {
+    texto.textContent = "Nenhum par de co-votação calculado.";
+  } else if (!resumo.informativo) {
+    texto.textContent =
+      `${resumo.total} pares analisados: nenhum com limites estreitos. ` +
+      "Os dados não identificam a co-votação individual; os limites abaixo mostram por quê.";
+  } else {
+    texto.textContent =
+      `${resumo.total} pares: ${resumo.informativo} informativo(s), ` +
+      `${resumo.parcial} parcial(is), ${resumo.indeterminado} indeterminado(s).`;
+  }
+
+  const corpo = document.querySelector("#tabela-covot tbody");
+  corpo.textContent = "";
+  for (const par of DADOS.covotacoes) {
+    const tr = document.createElement("tr");
+    tr.appendChild(el("td", par.a));
+    tr.appendChild(el("td", par.b));
+    tr.appendChild(el("td", `${pct(par.p_b_a_inf)}–${pct(par.p_b_a_sup)}`, "num"));
+    tr.appendChild(el("td", `${pct(par.p_a_b_inf)}–${pct(par.p_a_b_sup)}`, "num"));
+    tr.appendChild(el("td", pct(par.largura), "num"));
+    const g = par.goodman === null ? "—" : fmt(par.goodman, 2) + (par.goodman_flag ? " !" : "");
+    tr.appendChild(el("td", g, "num"));
+    const tag = el("span", par.flag || "—", "tag " + (par.flag || ""));
+    const td = el("td");
+    td.appendChild(tag);
+    tr.appendChild(td);
+    corpo.appendChild(tr);
+  }
+}
+
+renderCabecalho();
+const metodoInicial = DADOS.meta.bloco_metodo === "none" ? "dentro" : "bloco";
+document.getElementById("metodo").value = metodoInicial;
+renderHeatmap(metodoInicial);
+preencherCorrelacoes();
+preencherCovotacao();
+
+document.getElementById("metodo").addEventListener("change", (evento) => {
+  renderHeatmap(evento.target.value);
+});
+</script>
+</body>
+</html>

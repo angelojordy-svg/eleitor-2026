@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import time
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Sequence
 
 from rich import box
 from rich.console import Console
@@ -867,6 +868,622 @@ def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mapa_urnas(client: CachedClient, args: argparse.Namespace) -> int:
+    """Gera o mapa por local (HTML + fundo offline + KML/CSV do Google)."""
+
+    from eleitor.render.html import render_mapa_urnas
+    from eleitor.services.exportar_google import ExportError, exportar_google
+    from eleitor.services.fundo_offline import FundoOfflineError, gerar_fundo
+    from eleitor.services.mapa_urnas import (
+        conferir_planilha,
+        construir_payload,
+        nome_arquivo,
+    )
+    from eleitor.sources.planilha import PlanilhaError, ler_planilha
+
+    caminho = Path(args.xlsx)
+    try:
+        with console.status("Lendo a planilha de BUs..."):
+            planilha = ler_planilha(caminho)
+    except PlanilhaError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return 1
+
+    avisos = conferir_planilha(planilha)
+    for aviso in avisos:
+        console.print(f"[yellow]Atenção:[/yellow] {aviso}")
+
+    with console.status("Agregando votos por local..."):
+        payload = construir_payload(planilha)
+
+    fundo = None
+    if not getattr(args, "sem_fundo_offline", False):
+        try:
+            with console.status("Gerando fundo offline..."):
+                fundo = gerar_fundo(
+                    payload,
+                    zoom_baixo=args.zoom_fundo,
+                    zoom_detalhe=args.zoom_detalhe,
+                    raio_detalhe_km=args.raio_detalhe,
+                    qualidade=args.qualidade,
+                    refazer=args.refazer_fundo,
+                    progresso=lambda msg: console.print(f"[dim]{msg}[/dim]"),
+                )
+        except FundoOfflineError as exc:
+            console.print(f"[yellow]Fundo offline indisponível:[/yellow] {exc}")
+        except Exception as exc:  # rede/Pillow: não impede o HTML
+            console.print(f"[yellow]Fundo offline indisponível:[/yellow] {exc}")
+    if fundo:
+        detalhe = (
+            f" + detalhe {fundo.alto.largura}x{fundo.alto.altura} (z{fundo.alto.zoom})"
+            if fundo.alto
+            else ""
+        )
+        console.print(
+            f"[green]Fundo offline:[/green] "
+            f"{fundo.baixo.largura}x{fundo.baixo.altura} (z{fundo.baixo.zoom})"
+            f"{detalhe} · {fundo.attr}"
+        )
+    else:
+        console.print("[yellow]Seguindo sem fundo offline; padrão Ruas (Esri).[/yellow]")
+
+    html = render_mapa_urnas(payload, fundo.para_dict() if fundo else None)
+    destino = Path(args.out) if args.out else caminho.parent / nome_arquivo(payload["meta"])
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    destino.write_text(html, encoding="utf-8")
+
+    google_dir = (
+        Path(args.google_dir) if args.google_dir else destino.parent / "google"
+    )
+    try:
+        arquivos = exportar_google(payload, google_dir)
+    except ExportError as exc:
+        console.print(f"[yellow]Google não gerado:[/yellow] {exc}")
+    else:
+        console.print(
+            f"[green]Google:[/green] {len(arquivos)} arquivo(s) em {google_dir}"
+        )
+
+    tamanho_mb = destino.stat().st_size / (1024 * 1024)
+    meta = payload["meta"]
+    console.print(f"[green]Mapa eleitoral gerado:[/green] {destino} ({tamanho_mb:.1f} MB)")
+    console.print(
+        f"{meta.get('municipio') or 'município'} — {meta['total_locais']} local(is), "
+        f"{meta['total_urnas']} urna(s), {meta['total_cargos']} cargo(s), "
+        f"{meta['total_aptos']:,} aptos.".replace(",", ".")
+    )
+    if not avisos:
+        console.print("[dim]Conferência de totais: OK.[/dim]")
+    return 0
+
+
+def _coletar_pares_focados(
+    args: argparse.Namespace, caminho_planilha: Path
+) -> list[tuple[tuple[str, str], tuple[str, str]]] | None:
+    """Lê --pares e --pares-arquivo; cria o template quando necessário."""
+
+    from eleitor.services.correlacao import (
+        ler_pares_arquivo,
+        parse_pares_texto,
+        texto_template_pares,
+    )
+
+    pares: list[tuple[tuple[str, str], tuple[str, str]]] = []
+    try:
+        for texto in args.pares or []:
+            pares.extend(parse_pares_texto(texto))
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return None
+
+    arquivo = (
+        Path(args.pares_arquivo)
+        if args.pares_arquivo
+        else caminho_planilha.parent / "pares.txt"
+    )
+    if args.pares_arquivo:
+        if not arquivo.exists():
+            arquivo.parent.mkdir(parents=True, exist_ok=True)
+            arquivo.write_text(texto_template_pares(), encoding="utf-8")
+            console.print(f"[yellow]Template criado:[/yellow] {arquivo}")
+            console.print("Edite a lista de pares e rode o comando de novo.")
+            return None
+        try:
+            pares.extend(ler_pares_arquivo(arquivo))
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]{exc}[/red]")
+            return None
+    elif not pares:
+        if not arquivo.exists():
+            arquivo.parent.mkdir(parents=True, exist_ok=True)
+            arquivo.write_text(texto_template_pares(), encoding="utf-8")
+            console.print(f"[yellow]Nenhum par informado. Template criado:[/yellow] {arquivo}")
+            console.print(
+                "Edite o arquivo (ou use --pares \"Cargo:numero; Cargo:numero\") "
+                "e rode de novo."
+            )
+            return None
+        try:
+            pares.extend(ler_pares_arquivo(arquivo))
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]{exc}[/red]")
+            return None
+
+    if not pares:
+        console.print(
+            "[yellow]A lista de pares está vazia. Edite o arquivo ou use --pares.[/yellow]"
+        )
+        return None
+    return pares
+
+
+def cmd_correlacao_focada(
+    dados: Any, caminho_planilha: Path, args: argparse.Namespace
+) -> int:
+    """Relatório focado de pares (bootstrap, permutação, benchmark e limites)."""
+
+    from eleitor.render.focado import render_focado
+    from eleitor.services.correlacao import (
+        analisar_correlacoes,
+        analisar_pares_focados,
+        escrever_focado_benchmark_csv,
+        escrever_focado_csv,
+        escrever_focado_locais_csv,
+        montar_payload_focado,
+        nome_base_focado,
+        resolver_pares,
+        selecionar,
+    )
+
+    pares_texto = _coletar_pares_focados(args, caminho_planilha)
+    if pares_texto is None:
+        return 1
+
+    try:
+        pares = resolver_pares(dados, pares_texto)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return 1
+
+    indices = selecionar(
+        dados, min_votos=args.min_votos, min_cobertura=args.min_cobertura
+    )
+    for i, j in pares:
+        if i not in indices:
+            indices.append(i)
+        if j not in indices:
+            indices.append(j)
+    indices = sorted(set(indices))
+    if len(indices) < 2:
+        console.print("[red]Poucos candidatos com votos para analisar.[/red]")
+        return 1
+
+    with console.status("Calculando correlações de referência..."):
+        resultado = analisar_correlacoes(
+            dados,
+            indices,
+            metodo_bloco=args.bloco,
+            bootstrap_top=0,
+            bootstrap_repeticoes=0,
+            seed=args.seed,
+        )
+
+    with console.status("Calculando métricas focadas (bootstrap/permutação)..."):
+        focados = analisar_pares_focados(
+            dados,
+            pares,
+            resultado,
+            benchmark_tipo=args.benchmark,
+            bootstrap_repeticoes=args.bootstrap,
+            permutacoes=args.permutacoes,
+            goodman_repeticoes=args.bootstrap,
+            loo=not args.sem_loo,
+            seed=args.seed,
+        )
+
+    base = nome_base_focado(dados.meta)
+    if args.out and Path(args.out).suffix.lower() == ".csv":
+        csv_principal = Path(args.out)
+        destino = csv_principal.parent
+        csv_locais = destino / f"{csv_principal.stem}_locais.csv"
+        csv_benchmark = destino / f"{csv_principal.stem}_benchmark.csv"
+    else:
+        destino = Path(args.out) if args.out else caminho_planilha.parent
+        destino.mkdir(parents=True, exist_ok=True)
+        csv_principal = destino / f"{base}.csv"
+        csv_locais = destino / f"{base}_locais.csv"
+        csv_benchmark = destino / f"{base}_benchmark.csv"
+
+    escritos = [
+        escrever_focado_csv(focados, csv_principal),
+        escrever_focado_locais_csv(focados, csv_locais),
+        escrever_focado_benchmark_csv(focados, csv_benchmark),
+    ]
+
+    if args.html:
+        alvo = Path(args.html)
+        if not alvo.suffix:
+            alvo = alvo / f"{base}.html"
+        alvo.parent.mkdir(parents=True, exist_ok=True)
+        html = render_focado(montar_payload_focado(dados, focados))
+        alvo.write_text(html, encoding="utf-8")
+        escritos.append(alvo)
+
+    meta = dados.meta
+    console.print(
+        f"[bold]{meta.get('municipio') or 'município'}[/bold] — "
+        f"{dados.n_urnas} urna(s), {dados.n_locais} local(is), "
+        f"{len(focados)} par(es) focado(s)."
+    )
+    console.print(
+        "[dim]p permutação = teste focado within-local; q = FDR. "
+        "Use p se o par foi pré-especificado; use q se foi escolhido após "
+        "varrer muitos pares. Limites de co-votação são exatos; Goodman é "
+        "sensibilidade, não verdade.[/dim]"
+    )
+
+    for posicao, par in enumerate(focados, start=1):
+        console.print(
+            f"\n[bold]{posicao}. {par.a.rotulo} × {par.b.rotulo}[/bold]"
+        )
+        bloco_txt = (
+            f"{par.r_bloco:+.3f}" if math.isfinite(par.r_bloco) else "—"
+        )
+        ic_txt = (
+            f"[{par.ic_boot_inf:+.2f}; {par.ic_boot_sup:+.2f}]"
+            if par.ic_boot_inf is not None and par.ic_boot_sup is not None
+            else "—"
+        )
+        p_txt = f"{par.p_perm:.2g}" if math.isfinite(par.p_perm) else "—"
+        q_focado_txt = (
+            f"{par.q_focado:.2g}" if math.isfinite(par.q_focado) else "—"
+        )
+        q_global_txt = (
+            f"{par.q_global:.2g}"
+            if par.q_global is not None and math.isfinite(par.q_global)
+            else "—"
+        )
+        console.print(
+            f"    bruto {par.r_bruto:+.3f} | dentro {par.r_dentro:+.3f} | "
+            f"bloco {bloco_txt} | local {par.r_local:+.3f} | "
+            f"Spearman {par.spearman_local:+.3f}"
+        )
+        partes_q: list[str] = []
+        if args.fdr in ("focado", "ambos"):
+            partes_q.append(f"q focado {q_focado_txt}")
+        if args.fdr in ("global", "ambos"):
+            partes_q.append(f"q global {q_global_txt}")
+        console.print(
+            f"    IC95 bootstrap {ic_txt} | p perm {p_txt} | "
+            + " | ".join(partes_q)
+        )
+        benchmark_txt = (
+            f"{par.benchmark_percentil:.0f}º percentil de "
+            f"{par.benchmark_n} pares ({par.benchmark_tipo})"
+            if par.benchmark_percentil is not None
+            else f"indisponível ({par.benchmark_n} pares, {par.benchmark_tipo})"
+        )
+        loo_txt = (
+            f"[{par.loo_min:+.2f}; {par.loo_mediana:+.2f}; {par.loo_max:+.2f}]"
+            if math.isfinite(par.loo_min)
+            else "—"
+        )
+        console.print(f"    benchmark {benchmark_txt} | LOO {loo_txt}")
+        console.print(
+            f"    P(B|A) {par.p_b_a_inf:.1%}–{par.p_b_a_sup:.1%} | "
+            f"P(A|B) {par.p_a_b_inf:.1%}–{par.p_a_b_sup:.1%} | "
+            f"largura {max(par.largura_a, par.largura_b):.0%} | "
+            f"{par.flag_covotacao}"
+        )
+        if par.goodman_b_a is not None:
+            goodman_txt = f"{par.goodman_b_a:+.3f}"
+            if par.goodman_b_a_inf is not None and par.goodman_b_a_sup is not None:
+                goodman_txt += (
+                    f" [{par.goodman_b_a_inf:+.2f}; {par.goodman_b_a_sup:+.2f}]"
+                )
+            if par.goodman_flag:
+                goodman_txt += " !"
+            console.print(f"    Goodman P(B|A) {goodman_txt}")
+        if par.flag_covotacao != "informativo":
+            console.print(
+                "[yellow]    Co-votação individual: não identificada para este par "
+                "(limites largos).[/yellow]"
+            )
+
+    for caminho_escrito in escritos:
+        rotulo = "HTML" if caminho_escrito.suffix.lower() == ".html" else "CSV"
+        console.print(f"[green]{rotulo}:[/green] {caminho_escrito}")
+    return 0
+
+
+def cmd_correlacao(client: CachedClient, args: argparse.Namespace) -> int:
+    """Correlação ecológica e limites de co-votação a partir da planilha de BUs."""
+
+    from eleitor.services.correlacao import (
+        analisar_correlacoes,
+        analisar_covotacao,
+        construir_dados,
+        escrever_correlacao_csv,
+        escrever_covotacao_csv,
+        escrever_matriz_csv,
+        montar_relatorio,
+        nome_base,
+        resumo_covotacao,
+        selecionar,
+    )
+    from eleitor.services.mapa_urnas import conferir_planilha
+    from eleitor.sources.planilha import PlanilhaError, ler_planilha
+
+    caminho = Path(args.xlsx)
+    try:
+        with console.status("Lendo a planilha de BUs..."):
+            planilha = ler_planilha(caminho)
+    except PlanilhaError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return 1
+
+    for aviso in conferir_planilha(planilha):
+        console.print(f"[yellow]Atenção:[/yellow] {aviso}")
+
+    with console.status("Montando matriz de urnas e candidatos..."):
+        dados = construir_dados(planilha)
+        indices = selecionar(
+            dados, min_votos=args.min_votos, min_cobertura=args.min_cobertura
+        )
+
+    if args.modo == "focado":
+        return cmd_correlacao_focada(dados, caminho, args)
+
+    if len(indices) < 2:
+        console.print(
+            "[red]Poucos candidatos com votos para correlacionar. "
+            "Tente --min-votos 0 --min-cobertura 0.[/red]"
+        )
+        return 1
+
+    base = nome_base(dados.meta)
+    if args.out and Path(args.out).suffix.lower() == ".csv":
+        saida = Path(args.out)
+        if args.modo == "covotacao":
+            csv_covot = saida
+            csv_matriz = None
+        else:
+            csv_matriz = saida
+            csv_covot = saida.with_name(f"{saida.stem}_covotacao.csv")
+        destino = saida.parent
+        csv_matriz_bruto = destino / f"{saida.stem}_bruto.csv"
+    else:
+        destino = Path(args.out) if args.out else caminho.parent
+        destino.mkdir(parents=True, exist_ok=True)
+        csv_matriz = destino / f"{base}.csv"
+        csv_matriz_bruto = destino / f"{base}_bruto.csv"
+        csv_covot = destino / f"{base.replace('correlacao', 'covotacao', 1)}.csv"
+
+    resultado = None
+    pares_covot = []
+    escritos: list[Path] = []
+    if args.modo in ("matriz", "ambos"):
+        with console.status("Calculando correlações (within-local + bloco)..."):
+            resultado = analisar_correlacoes(
+                dados,
+                indices,
+                metodo_bloco=args.bloco,
+                bootstrap_top=args.top,
+                bootstrap_repeticoes=args.bootstrap,
+                seed=args.seed,
+            )
+        escritos.append(escrever_correlacao_csv(resultado, csv_matriz))
+        escritos.append(
+            escrever_matriz_csv(
+                resultado,
+                csv_matriz.with_name(f"{csv_matriz.stem}_matriz.csv"),
+                resultado.r_dentro,
+            )
+        )
+        escritos.append(
+            escrever_matriz_csv(resultado, csv_matriz_bruto, resultado.r_bruto)
+        )
+        escritos.append(
+            escrever_matriz_csv(
+                resultado,
+                csv_matriz.with_name(f"{csv_matriz.stem}_bloco.csv"),
+                resultado.r_bloco,
+            )
+        )
+
+    if args.modo in ("covotacao", "ambos"):
+        with console.status("Calculando limites de co-votação..."):
+            pares_covot = analisar_covotacao(
+                dados,
+                indices,
+                goodman_top=args.goodman_top,
+                repeticoes=args.bootstrap,
+                seed=args.seed,
+            )
+        escritos.append(escrever_covotacao_csv(pares_covot, csv_covot))
+
+    caminho_html = None
+    if args.html:
+        if resultado is None:
+            console.print(
+                "[yellow]O HTML exige a matriz de correlação; use --modo matriz ou ambos.[/yellow]"
+            )
+        else:
+            from eleitor.render.html import render_correlacao
+
+            html = render_correlacao(montar_relatorio(dados, resultado, pares_covot))
+            alvo = Path(args.html)
+            if not alvo.suffix:
+                alvo = alvo / f"{base}.html"
+            alvo.parent.mkdir(parents=True, exist_ok=True)
+            alvo.write_text(html, encoding="utf-8")
+            caminho_html = alvo
+            escritos.append(alvo)
+
+    meta = dados.meta
+    console.print(
+        f"[bold]{meta.get('municipio') or 'município'}[/bold] — "
+        f"{dados.n_urnas} urna(s), {dados.n_locais} local(is), "
+        f"{len(indices)} candidato(s) selecionado(s), "
+        f"{fmt_int(int(dados.comparecimento.sum()))} comparecimento(s)."
+    )
+    if dados.agregadas:
+        console.print(
+            f"[dim]{len(dados.agregadas)} urna(s) agregada(s) (ex.: {dados.agregadas[0]}); "
+            "os votos já vêm somados no BU.[/dim]"
+        )
+    console.print(
+        f"[dim]Filtro: ≥{args.min_votos * 100:.2f}% dos válidos e "
+        f"≥{args.min_cobertura:.0%} das urnas. Para a matriz literalmente completa, "
+        "use --min-votos 0 --min-cobertura 0.[/dim]"
+    )
+    if args.min_votos <= 0 or args.min_cobertura <= 0:
+        console.print(
+            "[yellow]Aviso: a matriz completa inclui candidatos com poucos votos; "
+            "correlações altas podem ser instáveis. Prefira o filtro padrão para "
+            "interpretar.[/yellow]"
+        )
+
+    if resultado is not None:
+        pares = [p for p in resultado.pares if p.tipo_par != "mesmo_cargo"]
+        if not pares:
+            pares = list(resultado.pares)
+        pares.sort(
+            key=lambda p: (
+                abs(p.r_bloco) if math.isfinite(p.r_bloco) else abs(p.r_dentro)
+            ),
+            reverse=True,
+        )
+        flags_curtas = {
+            "associacao_forte": "forte",
+            "associacao_residual": "residual",
+            "substituto": "substituto",
+        }
+        console.print("\n[bold]Correlação ecológica[/bold] (top por |r| within-local+bloco):")
+        for posicao, par in enumerate(pares[: args.top], start=1):
+            console.print(
+                f"[bold]{posicao:>2}.[/bold] {par.a.rotulo} × {par.b.rotulo}"
+            )
+            bloco_txt = (
+                f"{par.r_bloco:+.3f}" if math.isfinite(par.r_bloco) else "—"
+            )
+            q_bloco_txt = (
+                f"{par.q_bloco:.2g}" if math.isfinite(par.q_bloco) else "—"
+            )
+            console.print(
+                f"    bruto {par.r_bruto:+.3f} | dentro {par.r_dentro:+.3f} | "
+                f"bloco {bloco_txt} | IC95 dentro "
+                f"[{par.ic95_dentro_inf:+.2f}; {par.ic95_dentro_sup:+.2f}] | "
+                f"q dentro {par.q_dentro:.2g} | q bloco {q_bloco_txt} | "
+                f"{flags_curtas.get(par.flag, par.flag)}"
+            )
+        texto_bloco = (
+            "r bloco = PC1 dos demais candidatos (leave-one-pair-out)"
+            if resultado.bloco_por_par
+            else f"r bloco = índice fixo ({resultado.bloco_metodo}); "
+            "use o filtro padrão para o PC1 por par"
+        )
+        console.print(
+            f"[dim]n efetivo = {resultado.n_locais} locais; "
+            f"p-valores/q usam esse n (não {resultado.n_urnas} urnas). "
+            f"{texto_bloco}; IC95 por Fisher; o bootstrap, quando houver, está no CSV.[/dim]"
+        )
+
+    if pares_covot:
+        contagem = resumo_covotacao(pares_covot)
+        console.print(
+            f"\n[bold]Co-votação[/bold] — {contagem['total']} pares entre cargos: "
+            f"[green]{contagem['informativo']} informativo(s)[/green], "
+            f"{contagem['parcial']} parcial(is), "
+            f"[yellow]{contagem['indeterminado']} indeterminado(s)[/yellow]."
+        )
+        if contagem["informativo"] == 0:
+            console.print(
+                "[yellow]Nenhum par com limites estreitos: os dados não identificam "
+                "co-votação individual para estes candidatos. A correlação ecológica "
+                "continua válida como descrição.[/yellow]"
+            )
+        console.print("\n[bold]Limites de co-votação[/bold] (menores larguras):")
+        for posicao, par in enumerate(pares_covot[: args.top], start=1):
+            goodman = (
+                f"{par.goodman_b_dado_a:+.2f}"
+                if par.goodman_b_dado_a is not None
+                else "—"
+            )
+            if par.goodman_flag:
+                goodman += " !"
+            console.print(
+                f"[bold]{posicao:>2}.[/bold] {par.a.rotulo} × {par.b.rotulo}"
+            )
+            console.print(
+                f"    P(B|A) {par.p_b_dado_a_inf:.0%}–{par.p_b_dado_a_sup:.0%} | "
+                f"P(A|B) {par.p_a_dado_b_inf:.0%}–{par.p_a_dado_b_sup:.0%} | "
+                f"largura {max(par.largura_a, par.largura_b):.0%} | "
+                f"Goodman {goodman} | {par.flag}"
+            )
+        console.print(
+            "[dim]P(B|A) e P(A|B) são limites exatos (não IC). "
+            "“!” = Goodman com algum parâmetro fora de [0,1]; use como sensibilidade, "
+            "não como verdade.[/dim]"
+        )
+
+    for caminho_escrito in escritos:
+        rotulo = "HTML" if caminho_escrito.suffix.lower() == ".html" else "CSV"
+        console.print(f"[green]{rotulo}:[/green] {caminho_escrito}")
+    return 0
+
+
+def cmd_mapa_google(client: CachedClient, args: argparse.Namespace) -> int:
+    """Exporta KML (Google Earth) e CSV/KML (Google My Maps) por local."""
+
+    from eleitor.services.exportar_google import ExportError, exportar_google
+    from eleitor.services.mapa_urnas import conferir_planilha, construir_payload
+    from eleitor.sources.planilha import PlanilhaError, ler_planilha
+
+    caminho = Path(args.xlsx)
+    try:
+        with console.status("Lendo a planilha de BUs..."):
+            planilha = ler_planilha(caminho)
+    except PlanilhaError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return 1
+
+    for aviso in conferir_planilha(planilha):
+        console.print(f"[yellow]Atenção:[/yellow] {aviso}")
+
+    if (args.a or args.b) and not args.cargo:
+        console.print("[red]--a/--b exigem --cargo.[/red]")
+        return 1
+
+    with console.status("Agregando votos por local..."):
+        payload = construir_payload(planilha)
+    destino = Path(args.out_dir) if args.out_dir else caminho.parent / "google"
+    try:
+        with console.status("Gerando KML e CSV..."):
+            arquivos = exportar_google(
+                payload,
+                destino,
+                cargo=args.cargo,
+                a=args.a,
+                b=args.b,
+                modo=args.modo,
+                tamanho=args.tamanho,
+            )
+    except ExportError as exc:
+        console.print(f"[red]{exc}[/red]")
+        return 1
+
+    console.print(f"[green]Exportação Google gerada:[/green] {destino}")
+    for arquivo in arquivos:
+        tamanho_kb = arquivo.stat().st_size / 1024
+        console.print(f"  [cyan]{arquivo.name}[/cyan] ({tamanho_kb:.0f} KB)")
+    console.print(
+        "[dim]Google Earth: abra o .kml. Google My Maps: importe o CSV "
+        "(_my_maps.csv) ou o KML plano.[/dim]"
+    )
+    return 0
+
+
 def cmd_selftest(client: CachedClient, args: argparse.Namespace) -> int:
     from eleitor.sources.resultados import url_ele_c, url_resultado
 
@@ -1000,6 +1617,172 @@ def build_parser() -> argparse.ArgumentParser:
         parser_.add_argument(
             "--workers", type=int, default=None, help="requisições simultâneas (padrão 4)"
         )
+
+    p_urnas = sub.add_parser(
+        "mapa-urnas",
+        help="gera mapa eleitoral por local de votação a partir de uma planilha de BUs",
+    )
+    p_urnas.add_argument(
+        "--xlsx",
+        required=True,
+        metavar="ARQUIVO",
+        help="planilha com as abas Locais de votação, Índice das urnas e Dados completos",
+    )
+    p_urnas.add_argument(
+        "--out",
+        help="arquivo HTML de saída (padrão: ao lado da planilha)",
+    )
+    p_urnas.add_argument(
+        "--sem-fundo-offline",
+        action="store_true",
+        help="não baixar/embutir o mosaico; o padrão vira Ruas (Esri)",
+    )
+    p_urnas.add_argument(
+        "--refazer-fundo",
+        action="store_true",
+        help="ignora o cache do fundo offline e baixa de novo",
+    )
+    p_urnas.add_argument(
+        "--zoom-fundo", type=int, default=12, help="zoom do município inteiro (padrão: 12)"
+    )
+    p_urnas.add_argument(
+        "--zoom-detalhe", type=int, default=15, help="zoom do detalhe urbano (padrão: 15)"
+    )
+    p_urnas.add_argument(
+        "--raio-detalhe",
+        type=float,
+        default=8.0,
+        metavar="KM",
+        help="raio em km do detalhe urbano (padrão: 8)",
+    )
+    p_urnas.add_argument(
+        "--qualidade", type=int, default=85, help="qualidade JPEG do fundo (padrão: 85)"
+    )
+    p_urnas.add_argument(
+        "--google-dir",
+        help="pasta dos KML/CSV (padrão: pasta 'google' ao lado do HTML)",
+    )
+    p_urnas.set_defaults(func=cmd_mapa_urnas)
+
+    p_corr = sub.add_parser(
+        "correlacao",
+        help="correlação ecológica e limites de co-votação entre candidatos (BUs)",
+    )
+    p_corr.add_argument("--xlsx", required=True, metavar="ARQUIVO")
+    p_corr.add_argument(
+        "--modo",
+        choices=["matriz", "covotacao", "ambos", "focado"],
+        default="ambos",
+        help="matriz, co-votação, os dois ou relatório focado de pares (padrão: ambos)",
+    )
+    p_corr.add_argument(
+        "--min-votos",
+        type=float,
+        default=0.005,
+        help="fração mínima dos válidos do cargo (padrão: 0,005 = 0,5%%)",
+    )
+    p_corr.add_argument(
+        "--min-cobertura",
+        type=float,
+        default=0.9,
+        help="fração mínima de urnas com voto > 0 (padrão: 0,9)",
+    )
+    p_corr.add_argument(
+        "--bloco",
+        choices=["presidente", "pc1", "none"],
+        default="presidente",
+        help="referência de sinal/fallback do bloco; o controle efetivo é o PC1 dos demais candidatos (padrão: presidente)",
+    )
+    p_corr.add_argument(
+        "--bootstrap",
+        type=int,
+        default=1000,
+        help="réplicas de bootstrap por cluster de local (0 desliga; padrão: 1000)",
+    )
+    p_corr.add_argument(
+        "--goodman-top",
+        type=int,
+        default=50,
+        help="quantos pares recebem estimativa de Goodman (padrão: 50)",
+    )
+    p_corr.add_argument(
+        "--top", type=int, default=20, help="linhas nas tabelas do terminal (padrão: 20)"
+    )
+    p_corr.add_argument("--seed", type=int, default=42)
+    p_corr.add_argument(
+        "--out",
+        help="diretório ou arquivo CSV de saída (padrão: ao lado da planilha)",
+    )
+    p_corr.add_argument("--html", help="arquivo HTML de saída (opcional)")
+    p_corr.add_argument(
+        "--pares",
+        action="append",
+        metavar="PAR",
+        help="par focado: 'Cargo:numero; Cargo:numero' (repita ou separe por |)",
+    )
+    p_corr.add_argument(
+        "--pares-arquivo",
+        metavar="ARQUIVO",
+        help="arquivo com um par por linha (padrão: In Put/pares.txt)",
+    )
+    p_corr.add_argument(
+        "--permutacoes",
+        type=int,
+        default=5000,
+        help="permutações within-local para o p focado (padrão: 5000)",
+    )
+    p_corr.add_argument(
+        "--benchmark",
+        choices=["fed-est", "same-party", "todos", "none"],
+        default="fed-est",
+        help="grupo de referência do benchmark (padrão: fed-est)",
+    )
+    p_corr.add_argument(
+        "--fdr",
+        choices=["focado", "global", "ambos"],
+        default="ambos",
+        help="quais q-FDR exibir no resumo (padrão: ambos)",
+    )
+    p_corr.add_argument(
+        "--sem-loo",
+        action="store_true",
+        help="não calcular leave-one-local-out",
+    )
+    p_corr.set_defaults(func=cmd_correlacao)
+
+    p_google = sub.add_parser(
+        "mapa-google",
+        help="exporta KML (Google Earth) e CSV/KML (Google My Maps) por local",
+    )
+    p_google.add_argument(
+        "--xlsx",
+        required=True,
+        metavar="ARQUIVO",
+        help="planilha com as abas de locais, urnas e dados completos",
+    )
+    p_google.add_argument(
+        "--out-dir",
+        help="pasta de saída (padrão: pasta 'google' ao lado da planilha)",
+    )
+    p_google.add_argument(
+        "--cargo",
+        help="cargo único (padrão: todos os cargos); ex.: governador",
+    )
+    p_google.add_argument("--a", help="número do candidato A (exige --cargo)")
+    p_google.add_argument("--b", help="número do candidato B (exige --cargo)")
+    p_google.add_argument(
+        "--modo",
+        choices=["vencedor", "diferenca"],
+        default="vencedor",
+        help="cor do pino: vencedor ou escala de diferença (padrão: vencedor)",
+    )
+    p_google.add_argument(
+        "--tamanho",
+        choices=["aptos", "votos"],
+        default="aptos",
+        help="tamanho do pino: eleitores aptos ou votos de A/B (padrão: aptos)",
+    )
+    p_google.set_defaults(func=cmd_mapa_google)
 
     p_sec = sub.add_parser("secoes", help="seções/urnas de um município")
     p_sec.add_argument("municipio")

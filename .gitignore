@@ -8,3 +8,13 @@ dist/
 .cache/
 resultado-*.html
 site/
+
+# Dados e artefatos locais (planilha, mapa e correlação)
+In Put/*.xlsx
+In Put/google/
+In Put/mapa_eleitoral_*.html
+In Put/correlacao_*.csv
+In Put/correlacao_*.html
+In Put/covotacao_*.csv
+In Put/focado_*.csv
+In Put/focado_*.html

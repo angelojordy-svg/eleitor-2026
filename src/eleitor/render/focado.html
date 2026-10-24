@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Análise focada de pares — eleitor</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --tinta: #17202a;
+    --fraco: #5d6d7e;
+    --linha: #d5dbdb;
+    --azul: #2471a3;
+    --vermelho: #c0392b;
+    --verde: #1e8449;
+    --amarelo: #f7dc6f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--tinta);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header, main, footer { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+  header { padding-top: 28px; }
+  h1 { margin: 0 0 4px; font-size: 27px; letter-spacing: -0.02em; }
+  h2 { margin: 0 0 4px; font-size: 21px; }
+  h3 { margin: 22px 0 8px; font-size: 16px; }
+  .subtitulo { margin: 0; color: var(--fraco); }
+  .aviso {
+    margin: 18px 0 0;
+    padding: 14px 16px;
+    border-left: 5px solid var(--amarelo);
+    background: #fffdf0;
+    border-radius: 8px;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin: 18px 0 6px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--linha);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .card .valor { font-size: 24px; font-weight: 700; }
+  .card .rotulo { color: var(--fraco); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .par {
+    background: var(--card);
+    border: 1px solid var(--linha);
+    border-radius: 12px;
+    padding: 18px;
+    margin: 22px 0;
+  }
+  .par .cabecalho { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  .par .tag { font-size: 12px; color: var(--fraco); }
+  .grade {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 14px;
+    margin-top: 12px;
+  }
+  .painel {
+    border: 1px solid var(--linha);
+    border-radius: 8px;
+    padding: 10px;
+    overflow: auto;
+    background: #fbfcfc;
+  }
+  .painel h4 { margin: 0 0 6px; font-size: 13px; color: var(--fraco); font-weight: 600; }
+  .grafico { width: 100%; height: auto; display: block; }
+  .vazio { color: var(--fraco); font-style: italic; padding: 20px 0; }
+  table { border-collapse: collapse; width: 100%; }
+  table.metricas { font-size: 13px; }
+  table.metricas th, table.metricas td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--linha);
+    text-align: left;
+    vertical-align: top;
+  }
+  table.metricas th { width: 42%; color: var(--fraco); font-weight: 500; }
+  table.metricas td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  table.locais { font-size: 12px; }
+  table.locais th, table.locais td {
+    padding: 5px 7px;
+    border-bottom: 1px solid var(--linha);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  table.locais th:first-child, table.locais td:first-child { text-align: left; }
+  table.locais thead th { position: sticky; top: 0; background: var(--card); }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--azul); font-size: 13px; }
+  .conclusao {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: #f4f6f7;
+    border: 1px solid var(--linha);
+    font-size: 14px;
+  }
+  .conclusao strong { font-weight: 700; }
+  .tag {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: #eef2f5;
+    color: #34495e;
+    white-space: nowrap;
+  }
+  .tag.informativo { background: #e8f6ef; color: var(--verde); }
+  .tag.parcial { background: #fef5e7; color: #9c640c; }
+  .tag.indeterminado { background: #fdecea; color: #a93226; }
+  .tag.forte { background: #e8f6ef; color: var(--verde); }
+  .tag.residual { background: #e8f4fb; color: var(--azul); }
+  .tag.substituto { background: #f4f6f7; color: #566573; }
+  .legenda { color: var(--fraco); font-size: 12px; margin-top: 6px; }
+  footer { color: var(--fraco); font-size: 12px; padding: 28px 20px 40px; }
+  code { background: #eef2f5; padding: 1px 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Análise focada de pares</h1>
+  <p class="subtitulo" id="subtitulo">__SUBTITULO__</p>
+</header>
+<main>
+  <div class="aviso">
+    <strong>Leia com cuidado.</strong> A correlação é entre <em>lugares</em> (urnas e locais),
+    não entre pessoas. Ela não prova que o eleitor de A votou em B nem que houve
+    transferência de votos. A co-votação individual só é identificada quando os limites
+    determinísticos são estreitos; caso contrário, o resultado correto é
+    <em>“não identificado”</em>. O p-valor focado e o q-FDR respondem perguntas diferentes:
+    use o p se o par foi escolhido antes de olhar os dados; use o q se ele foi escolhido
+    depois de varrer muitos pares.
+  </div>
+  <section id="cards" class="cards">__CARDS__</section>
+  __PARES__
+</main>
+<footer>
+  <p>
+    Fonte: planilha de boletins de urna (BU) do TSE. Unidade: urna; cluster: local.
+    <code>r bruto</code> = entre urnas; <code>r dentro</code> = após remover a média do local;
+    <code>r bloco</code> = após remover também o PC1 dos demais candidatos;
+    <code>r local</code> = correlação entre os locais (descritiva).
+    <code>p perm</code> = permutação within-local; <code>q FDR</code> = Benjamini–Hochberg.
+    <code>Goodman</code> é sensibilidade, não verdade; “!” indica parâmetro fora de [0,1].
+  </p>
+  <p>Gerado por <code>eleitor correlacao --modo focado</code>. Números conforme a planilha.</p>
+</footer>
+</body>
+</html>
