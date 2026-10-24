@@ -748,9 +748,12 @@ function montarLinksGoogle() {
   const meta = DADOS.meta;
   const municipio = slugArquivo(String(meta.municipio || "municipio").split("/")[0]);
   const base = `google/mapa_eleitoral_${municipio}_${meta.ano || 2026}`;
+  const cargos = DADOS.cargos.map((cargo) => {
+    const sufixo = slugArquivo(cargo.nome);
+    return `<a href="${base}_${sufixo}_my_maps.csv" download>CSV ${esc(cargo.nome)} (My Maps)</a>`;
+  }).join("");
   $("#links-google").innerHTML = `
-    <a href="${base}_todos.kml" download>KML completo (Google Earth)</a>
-    <a href="${base}_governador_my_maps.csv" download>CSV Governador (My Maps)</a>`;
+    <a href="${base}_todos.kml" download>KML completo (Google Earth)</a>${cargos}`;
 }
 
 function preencherCabecalho() {
