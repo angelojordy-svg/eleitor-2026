@@ -399,6 +399,8 @@ def coletar_snapshot(
     com_mapa: bool = True,
     com_mapa_municipios: list[str] | None = None,
     refazer_mapa: bool = False,
+    com_mundo: bool = True,
+    refazer_mundo: bool = False,
     com_financas: bool = True,
     refazer_financas: bool = False,
     progresso: Callable[[str], None] | None = None,
@@ -451,6 +453,15 @@ def coletar_snapshot(
                 )
             )
 
+    mundo: dict[str, Any] | None = None
+    if com_mundo:
+        from eleitor.services.mundo import coletar_mundo
+
+        try:
+            mundo = coletar_mundo(client, loc, progresso=progresso, refazer=refazer_mundo)
+        except Exception as exc:  # rede/geometria indisponível: artefato segue sem o mapa mundial
+            aviso(f"Mapa mundial indisponível: {exc}")
+
     municipios_dados: list[dict[str, Any]] = []
     for municipio in municipios:
         aviso(f"{municipio.nome}/{municipio.uf.upper()} — resultados e zonas...")
@@ -471,6 +482,7 @@ def coletar_snapshot(
         "congresso": congresso,
         "financas": financas,
         "mapa": mapa,
+        "mundo": mundo,
         "municipios": municipios_dados,
         "catalogo": catalogo,
     }

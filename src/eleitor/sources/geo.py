@@ -26,6 +26,22 @@ FORMATO = "application/vnd.geo+json"
 USER_AGENT = "eleitor-cli/0.1 (consulta local; projeto de estudo)"
 QUALIDADE_PADRAO = "minima"
 
+# Mapa-múndi: Natural Earth 50m "map units" (domínio público). Os map units
+# separam dependências (ex.: Guiana Francesa = GF), o que a malha de países
+# não faz. A 110m fica de fora porque não tem 9 países com votos no exterior.
+MUNDO_URL = (
+    "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/"
+    "geojson/ne_50m_admin_0_map_units.geojson"
+)
+MUNDO_URL_FALLBACK = (
+    "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/"
+    "geojson/ne_50m_admin_0_map_units.geojson"
+)
+MUNDO_ARQUIVO = "mundo-50m.json"
+# Antártida e territórios inabitados muito ao sul/oeste só aumentariam o
+# viewBox sem ter cidade com votação.
+MUNDO_EXCLUIR = {"AQ", "TF", "BV", "HM", "GS", "IO"}
+
 # Projeção Albers (área igual) usada nos mapas oficiais do Brasil.
 PHI0 = -12.0
 LAM0 = -52.0
@@ -120,6 +136,22 @@ def malha_ufs(qualidade: str = QUALIDADE_PADRAO, forcar: bool = False) -> dict[s
 
 def malha_municipios(uf: str, qualidade: str = QUALIDADE_PADRAO) -> dict[str, Any]:
     return baixar_malha(url_malha_municipios(uf, qualidade), f"mun-{uf.lower()}-{qualidade}.json")
+
+
+def url_malha_mundo() -> str:
+    return MUNDO_URL
+
+
+def malha_mundo(forcar: bool = False) -> dict[str, Any]:
+    """Malha dos países/territórios do mundo (Natural Earth 50m)."""
+
+    caminho = _arquivo(MUNDO_ARQUIVO)
+    if forcar and caminho.exists():
+        caminho.unlink()
+    try:
+        return baixar_malha(url_malha_mundo(), MUNDO_ARQUIVO)
+    except GeoError:
+        return baixar_malha(MUNDO_URL_FALLBACK, MUNDO_ARQUIVO)
 
 
 def paths_municipios(
@@ -248,6 +280,30 @@ def _fmt(valor: float, precisao: int) -> str:
     return texto.rstrip("0").rstrip(".") if "." in texto else texto
 
 
+def _contar_pontos(coordenadas: Any) -> int:
+    if not coordenadas:
+        return 0
+    if isinstance(coordenadas[0], (int, float)):
+        return 1
+    return sum(_contar_pontos(item) for item in coordenadas)
+
+
+def _mollweide(lon: float, lat: float) -> tuple[float, float]:
+    """Projeção de Mollweide (área igual, mundo em ~2:1)."""
+
+    lam = math.radians(lon)
+    phi = math.radians(lat)
+    theta = phi
+    for _ in range(8):
+        den = 2.0 + 2.0 * math.cos(2.0 * theta)
+        if abs(den) < 1e-12:
+            break
+        theta -= (2.0 * theta + math.sin(2.0 * theta) - math.pi * math.sin(phi)) / den
+    x = (2.0 * math.sqrt(2.0) / math.pi) * lam * math.cos(theta)
+    y = math.sqrt(2.0) * math.sin(theta)
+    return x, y
+
+
 def geo_para_paths(
     malha: dict[str, Any],
     largura: int = 1000,
@@ -255,16 +311,22 @@ def geo_para_paths(
     margem: float = 12.0,
     eps: float = 0.35,
     precisao: int = 1,
+    projetar: Callable[[float, float], tuple[float, float]] | None = None,
+    campo: str = "codarea",
 ) -> tuple[dict[str, dict[str, Any]], dict[str, float]]:
     """Projeta a malha e devolve ``({codarea: {p, bb, cx, cy}}, transformação)``."""
 
-    projetar = _albers(PHI0, LAM0, PHI1, PHI2)
-    brutos: list[tuple[str, list[list[tuple[float, float]]]]] = []
+    if projetar is None:
+        projetar = _albers(PHI0, LAM0, PHI1, PHI2)
+    # Várias feições podem compartilhar o mesmo código (ex.: Portugal
+    # continental + Madeira + Açores, ou Cisjordânia + Gaza). Somamos os anéis
+    # em vez de deixar a última feição sobrescrever as anteriores.
+    por_codigo: dict[str, list[list[tuple[float, float]]]] = {}
     xs: list[float] = []
     ys: list[float] = []
 
     for feicao in malha.get("features", []):
-        codigo = str((feicao.get("properties") or {}).get("codarea") or "")
+        codigo = str((feicao.get("properties") or {}).get(campo) or "")
         aneis = _anel_externo(feicao.get("geometry") or {})
         aneis_proj: list[list[tuple[float, float]]] = []
         for anel in aneis:
@@ -275,9 +337,9 @@ def geo_para_paths(
             xs.extend(p[0] for p in pontos)
             ys.extend(p[1] for p in pontos)
         if aneis_proj and codigo:
-            brutos.append((codigo, aneis_proj))
+            por_codigo.setdefault(codigo, []).extend(aneis_proj)
 
-    if not brutos:
+    if not por_codigo:
         raise GeoError("malha sem coordenadas utilizáveis")
 
     min_x, max_x = min(xs), max(xs)
@@ -293,7 +355,7 @@ def geo_para_paths(
         return off_x + x * escala, off_y - y * escala
 
     itens: dict[str, dict[str, Any]] = {}
-    for codigo, aneis in brutos:
+    for codigo, aneis in por_codigo.items():
         partes: list[str] = []
         melhor_area = -1.0
         melhor_centro = (0.0, 0.0)
@@ -335,3 +397,70 @@ def geo_para_paths(
         "off_y": off_y,
     }
     return itens, transformacao
+
+
+def mundo_para_paths(
+    malha: dict[str, Any],
+    largura: int = 1000,
+    altura: int = 1000,
+    eps: float = 0.7,
+    precisao: int = 1,
+) -> dict[str, Any]:
+    """Paths dos países do mundo em Mollweide, já recortados no desenho.
+
+    Devolve ``{"itens": {ISO2: {p, bb, cx, cy, nome}}, "vb": [x, y, w, h]}``.
+    Feições com o mesmo ISO são somadas (ex.: Cisjordânia + Faixa de Gaza).
+    """
+
+    nomes: dict[str, str] = {}
+    nomes_pontos: dict[str, int] = {}
+    feicoes: list[dict[str, Any]] = []
+    for feicao in malha.get("features", []):
+        props = feicao.get("properties") or {}
+        iso = str(props.get("ISO_A2_EH") or "").strip()
+        if not iso or iso == "-99":
+            iso = str(props.get("ISO_A2") or "").strip()
+        if not iso or iso == "-99" or iso in MUNDO_EXCLUIR:
+            continue
+        nome = str(props.get("NAME_PT") or props.get("NAME") or iso)
+        pontos = _contar_pontos((feicao.get("geometry") or {}).get("coordinates") or [])
+        if pontos > nomes_pontos.get(iso, -1):
+            nomes[iso] = nome
+            nomes_pontos[iso] = pontos
+        feicoes.append(
+            {
+                "type": "Feature",
+                "properties": {"codarea": iso},
+                "geometry": feicao.get("geometry") or {},
+            }
+        )
+
+    if not feicoes:
+        raise GeoError("malha do mundo sem feições utilizáveis")
+
+    itens, _ = geo_para_paths(
+        {"type": "FeatureCollection", "features": feicoes},
+        largura=largura,
+        altura=altura,
+        eps=eps,
+        precisao=precisao,
+        projetar=_mollweide,
+    )
+    if not itens:
+        raise GeoError("malha do mundo sem coordenadas utilizáveis")
+
+    for iso, info in itens.items():
+        info["nome"] = nomes.get(iso, iso)
+
+    margem = 6.0
+    x0 = min(info["bb"][0] for info in itens.values())
+    y0 = min(info["bb"][1] for info in itens.values())
+    x1 = max(info["bb"][0] + info["bb"][2] for info in itens.values())
+    y1 = max(info["bb"][1] + info["bb"][3] for info in itens.values())
+    vb = [
+        round(x0 - margem, precisao),
+        round(y0 - margem, precisao),
+        round((x1 - x0) + 2 * margem, precisao),
+        round((y1 - y0) + 2 * margem, precisao),
+    ]
+    return {"itens": itens, "vb": vb}

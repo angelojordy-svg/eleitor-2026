@@ -52,6 +52,10 @@ def test_url_municipios_config():
         url_municipios_config()
         == "https://resultados.tse.jus.br/oficial/ele2026/6259/config/mun-e006259-cm.json"
     )
+    assert (
+        url_municipios_config(6257)
+        == "https://resultados.tse.jus.br/oficial/ele2026/6257/config/mun-e006257-cm.json"
+    )
 
 
 def test_url_foto():

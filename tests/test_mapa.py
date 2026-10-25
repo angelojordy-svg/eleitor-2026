@@ -58,6 +58,33 @@ def test_geo_para_paths_nao_estoura_com_geometria_vazia() -> None:
         geo.geo_para_paths({"type": "FeatureCollection", "features": []})
 
 
+def test_geometrias_com_mesmo_codigo_somam_aneis() -> None:
+    malha = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {"codarea": "PT"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [0.0, 0.0]]],
+                },
+            },
+            {
+                "type": "Feature",
+                "properties": {"codarea": "PT"},
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[[3.0, 3.0], [4.0, 3.0], [4.0, 4.0], [3.0, 4.0], [3.0, 3.0]]],
+                },
+            },
+        ],
+    }
+    itens, _ = geo.geo_para_paths(malha, eps=0.0)
+    assert itens["PT"]["p"].count("M") == 2
+    assert itens["PT"]["bb"][2] > 1
+
+
 def test_multi_polygon_e_simplificacao() -> None:
     malha = {
         "type": "FeatureCollection",

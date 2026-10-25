@@ -23,6 +23,11 @@ O site tem ainda:
   vão ao **2º turno** (com a contagem de quantos já elegeram no 1º turno). A paleta tem
   matizes espaçados de propósito, para PL/PSD/PSDB e PP/PODE/MDB não se confundirem.
   Todos os 5.571 municípios vêm embutidos (funciona offline).
+- **Apuração mundial**: nova aba `#/mundo` com a votação para presidente **no exterior**
+  (186 cidades em 134 países), colorida pelo candidato mais votado e pela força da
+  maioria, com abas **1º/2º turno**, balão ao vivo (soma as cidades do país no TSE) e
+  tabela pesquisável "Como cada país votou". O Brasil aparece em cinza: este recorte é
+  só do exterior. Funciona offline; a geometria Natural Earth vem embutida.
 - **Balão + rótulos de apuração**: passar o mouse (ou tocar, no celular — o primeiro
   toque informa e o segundo abre) mostra líder, votos, % dos válidos, 2º colocado e o
   **% de apuração** (seções totalizadas), com o status ("apuração em andamento",
@@ -88,8 +93,8 @@ por candidato naquela urna. As especificações ASN.1 usadas estão em
 O comando `html` gera um artefato único offline (snapshot estilo site do TSE) com
 Brasil, 27 estados, o mapa do Brasil (estados e municípios) e os municípios informados,
 incluindo navegação por zona e seção e página de candidato. Flags: `--sem-fotos`,
-`--sem-secoes`, `--sem-mapa`, `--mapa-municipios br|UF,UF|none`, `--refazer-mapa`,
-`--ritmo` e `--workers`.
+`--sem-secoes`, `--sem-mapa`, `--sem-mundo`, `--mapa-municipios br|UF,UF|none`,
+`--refazer-mapa`, `--refazer-mundo`, `--ritmo` e `--workers`.
 
 O primeiro `html` com o mapa nacional baixa o líder por município dos 5.571 municípios
 (~11 mil requisições; ~8 min com `--ritmo 0.04 --workers 10`). O cálculo fica em cache
@@ -103,7 +108,11 @@ turno) use `--refazer-mapa`, ou apenas rode:
 
 A geometria do mapa vem do IBGE (malhas) e é baixada uma única vez para
 `%LOCALAPPDATA%\eleitor\geo` (pode ser alterada com `ELEITOR_GEO_DIR`); depois o mapa
-é gerado offline sem novas consultas.
+é gerado offline sem novas consultas. O mapa mundial usa a Natural Earth 50m
+(domínio público, `ISO_A2_EH`), projetada em Mollweide e cacheada como
+`mundo-50m.json` na mesma pasta. Os votos por país são a soma das cidades do exterior
+(`zz{mun:05d}`) e o 2º turno só baixa as 186 cidades quando o agregado `zz` já tem
+votos.
 
 O artefato tem o botão **"Atualizar online"** no topo: com internet, busca os
 resultados mais recentes direto do TSE (Brasil, estados, municípios e zonas) sem

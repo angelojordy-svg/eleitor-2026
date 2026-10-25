@@ -40,10 +40,14 @@ Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/
 ## Mapa do código
 - `config.py` — códigos de 2026, cargos, TTLs (fonte de verdade).
 - `http.py` — `CachedClient`: cache em disco com ETag/304, throttle 0,15s, `get_json`/`get_bytes`/`get_urls`.
+- `paises.py` — tabela estática `CIDADE_PAIS`/`PAISES` (código TSE da cidade do exterior → ISO2/nome),
+  usada pelo mapa mundial; 134 países com seção + Vaticano (sem cidade no config de 2026).
 - `sources/resultados.py` — URLs + parsers EA12/EA16/EA20.
 - `sources/bu.py` — BU (ASN.1 BER; specs em `spec/`; tenta v2 depois v1).
 - `sources/urna.py` — nomes/URLs de arquivos de urna (aux -> hash -> BU).
-- `sources/geo.py` — malhas do IBGE (retry/backoff, cache `%LOCALAPPDATA%\eleitor\geo`), projeção Albers, `geo_para_paths`.
+- `sources/geo.py` — malhas do IBGE (retry/backoff, cache `%LOCALAPPDATA%\eleitor\geo`), projeção Albers,
+  `geo_para_paths`; mapa mundial em Natural Earth 50m map units (`ISO_A2_EH`, cache `mundo-50m.json`) com
+  projeção Mollweide e `mundo_para_paths`.
 - `sources/contas.py` — prestação de contas + cadastro + bens (CSV ISO-8859-1); download com impressão digital
   (`Last-Modified`/tamanho) em `%LOCALAPPDATA%\eleitor\contas`, leitura em streaming; só a variante `_BRASIL`.
   `parse_receitas` devolve a ponte `SQ_PRESTADOR_CONTAS → SQ_CANDIDATO` usada por `parse_despesas_pagas`.
@@ -51,7 +55,10 @@ Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/
   Só candidatos com receita/gasto > 0. `fundos` = FP (`FUNDO PARTIDARIO`) + FEFC (`FUNDO ESPECIAL`); `gasto` = despesas pagas.
 - `services/mapa.py` — resumo por UF + `bake_resultado_municipios` (cache retomável `mapa\res-{cargo}-t{turno}.json`;
   `VERSAO_BAKE` força recálculo; guarda `ufs` p/ não confundir bake parcial com nacional).
-- `services/snapshot.py` — dados do HTML offline (Brasil/estados/municípios/seções/fotos/mapa/geometria e finanças).
+- `services/mundo.py` — mapa mundial: `bake_mundo` soma as cidades do exterior por país (1º/2º turno; o 2º
+  turno só consulta as 186 cidades se o agregado `zz` tiver votos), `coletar_mundo` junta geometria +
+  `res`/`validos`/`total`/`meta`; Brasil fica só como geometria (cinza).
+- `services/snapshot.py` — dados do HTML offline (Brasil/estados/municípios/seções/fotos/mapa/mundo/geometria e finanças).
   Finanças = vetores alinhados (`colunas`+`itens`); votos por `SQ_CANDIDATO` da EA20 (Presidente = nacional, estaduais = por UF).
 - `sources/planilha.py` — lê a planilha de BUs com `openpyxl` (Leia-me, Locais, Índice das urnas, Resumo por urna,
   Dados completos). Normaliza cabeçalhos sem acento; devolve dataclasses (`LocalVotacao`, `Urna`, `ResumoUrna`, `Voto`).
@@ -76,7 +83,8 @@ Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/
   Mapa base: **offline embutido (padrão)**, **Ruas (Esri)**, **Satélite (Esri)** ou nenhum; `tileerror` avisa 403.
   **CARTO não usar** (chave desde 25/09/2026) e **OSM online não usar na rede do usuário** (bloqueado).
 - `render/` — `html.py` + `template.html` (artefato único, navegação por hash, página de candidato, botão "Atualizar online",
-  aba `#/ranking` de gastos via `viewRanking()`, balão do mapa via `ligarMapa()`).
+  aba `#/ranking` de gastos via `viewRanking()`, aba `#/mundo` via `viewMundo()` com hover que soma as cidades do país,
+  balão do mapa via `ligarMapa()`).
 - `cli.py` — argparse + menus rich. `models.py` — dataclasses.
 
 ## Fatos do TSE (não redescobrir)
@@ -121,6 +129,23 @@ Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/
   EA20 (`s.pst`); o blob atualiza ao vivo só enquanto `apuracao% < 100`.
 - Boa Esperança do Norte/MT (IBGE 5101837) é novo e sem malha no IBGE: fica fora do mapa municipal.
 
+## Fatos do mundo (mapa)
+- Votação no exterior = UF `zz` na eleição **6257** (1º turno) / **6258** (2º). O config de 6259 **não** tem `zz`.
+  186 cidades em 134 países/territórios (918.876 eleitores aptos em 2026); o Vaticano tem 0 e não está no config.
+- URL por cidade: `.../{eleicao}/dados/zz/zz{mun:05d}-c0001-e{eleicao:06d}-u.json`; agregado: `zz/zz-c0001-...`.
+  O TSE **não** publica o total por país: `services/mundo.py` soma as cidades de cada país (`paises.py`).
+- 1º turno de 2026 (final): 1.351/1.351 seções, 330.882 válidos; a soma das 186 cidades bate exatamente com o
+  agregado `zz` (Lula 157.387 / Flávio 143.900). O 2º turno começa zerado; consultar o agregado antes evita 186 404s.
+- Casos ambíguos de cidade→país já resolvidos: Concepción→PY, Rio Branco→UY, São José→CR, São Salvador→SV,
+  São Domingos→DO, Puerto Iguazú→AR, Puerto Quijarro→BO, Santa Elena de Uairén→VE, St Georges de Loyapock→GF.
+- Geometria: Natural Earth **50m map units** (domínio público; `ISO_A2_EH`) porque a 110m não tem 9 países com votos;
+  a malha de países junta a Guiana Francesa na França, os map units não. Mollweide, `eps=0,35`, viewBox ~980×431,
+  payload ~200 KB. Antártida/territórios inabitados (`AQ,TF,BV,HM,GS,IO`) ficam fora.
+- Várias feições com o mesmo ISO/código são somadas (`geo_para_paths`); o nome do país é o da maior feição
+  (Portugal continental > Açores > Madeira; Cisjordânia + Gaza = PS). Brasil entra só como geometria cinza.
+- No hover o navegador busca as cidades do país (1–10 req; debounce de 280 ms) e agrega por número de candidato;
+  o "Atualizar online" busca só o agregado `zz` do 2º turno (as cores por país atualizam no hover).
+
 ## Fatos estatísticos (correlação / co-votação)
 - A unidade é a **urna**; o cluster é o **local** (55 em Parauapebas). A ICC das shares é ~0,98: o n efetivo é
   ~55, não 586. p-valores,q e ICs usam o n efetivo; nunca tratar urnas como independentes.
@@ -142,7 +167,9 @@ Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/
 ## Estado atual
 Pronto: resultados ao vivo (BR/UF/município/zona), seções via EA18, votos por seção via BU, artefato HTML offline
 (Brasil/estados/municípios/seções/congresso), mapa do Brasil (estados + 5.571 municípios, 1º/2º turno, cor por
-partido + maioria, hachura no 2º turno, balão com votação/apuração), **finanças** (CLI `eleitor financas` + aba
+partido + maioria, hachura no 2º turno, balão com votação/apuração), **mapa mundial** (aba `#/mundo`: votação no
+exterior por país, 1º/2º turno, hover que soma as cidades, tabela e Brasil cinza; geometria Natural Earth/Mollweide),
+**finanças** (CLI `eleitor financas` + aba
 `#/ranking`; ~16.962 candidatos, dados parciais), **mapa por local de votação** (CLI `eleitor mapa-urnas` +
 `In Put/mapa_eleitoral_parauapebas_2026.html`: 55 locais, 586 urnas, comparação A×B por cargo em Leaflet com
 fundo OSM offline embutido e ruas Esri online; publicado em

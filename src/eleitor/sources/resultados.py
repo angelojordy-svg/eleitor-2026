@@ -24,8 +24,7 @@ def url_ele_c() -> str:
     return f"{BASE_URL}/comum/config/ele-c.json"
 
 
-def url_municipios_config() -> str:
-    eleicao = ELEICAO_CONFIG_MUNICIPIOS
+def url_municipios_config(eleicao: int = ELEICAO_CONFIG_MUNICIPIOS) -> str:
     return f"{BASE_URL}/{CICLO}/{eleicao}/config/mun-e{eleicao:06d}-cm.json"
 
 

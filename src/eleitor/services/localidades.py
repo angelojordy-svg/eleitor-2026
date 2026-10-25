@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unicodedata
 
-from eleitor.config import TTL_CONFIG
+from eleitor.config import ELEICAO_FEDERAL, TTL_CONFIG
 from eleitor.http import CachedClient
 from eleitor.models import Municipio
 from eleitor.sources.resultados import parse_municipios, url_municipios_config
@@ -18,6 +18,7 @@ class Localidades:
     def __init__(self, client: CachedClient) -> None:
         self.client = client
         self._municipios: list[Municipio] | None = None
+        self._exterior: list[Municipio] | None = None
 
     @property
     def municipios(self) -> list[Municipio]:
@@ -25,6 +26,19 @@ class Localidades:
             data = self.client.get_json(url_municipios_config(), ttl=TTL_CONFIG)
             self._municipios = parse_municipios(data or {})
         return self._municipios
+
+    @property
+    def exterior(self) -> list[Municipio]:
+        """Cidades com votação no exterior (UF ``zz``).
+
+        O config de municípios do exterior só existe na eleição presidencial
+        (6257); o de 6259 não traz a UF ``zz``.
+        """
+
+        if self._exterior is None:
+            data = self.client.get_json(url_municipios_config(ELEICAO_FEDERAL), ttl=TTL_CONFIG)
+            self._exterior = [m for m in parse_municipios(data or {}) if m.uf == "zz"]
+        return self._exterior
 
     def buscar(self, termo: str, uf: str | None = None) -> list[Municipio]:
         alvo = normalizar(termo)

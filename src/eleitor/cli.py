@@ -5,6 +5,7 @@ import json
 import math
 import sys
 import time
+import webbrowser
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -33,6 +34,11 @@ from eleitor.services.votos import (
 )
 
 console = Console()
+
+MAPA_POR_LOCAL_URL = (
+    "https://angelojordy-svg.github.io/eleitor-2026/mapa/parauapebas/"
+    "#cargo=presidente&a=22&b=13&modo=vencedor&base=offline"
+)
 
 CARGO_ALIASES = {
     "presidente": 1,
@@ -504,12 +510,13 @@ def menu(client: CachedClient) -> None:
                 "5. Votos por seção de uma zona inteira\n"
                 "6. Gerar HTML offline (snapshot estilo TSE)\n"
                 "7. Ranking de gastos de campanha (prestação de contas)\n"
+                "8. Abrir mapa por local de votação (Parauapebas) no navegador\n"
                 "0. Sair",
                 title="Menu",
                 expand=False,
             )
         )
-        opcao = Prompt.ask("Opção", choices=["1", "2", "3", "4", "5", "6", "7", "0"], default="1")
+        opcao = Prompt.ask("Opção", choices=["1", "2", "3", "4", "5", "6", "7", "8", "0"], default="1")
 
         if opcao == "0":
             return
@@ -637,6 +644,11 @@ def menu(client: CachedClient) -> None:
                 )
             except (TTSError, RateLimited) as exc:
                 console.print(f"[red]{exc}[/red]")
+            Prompt.ask("[dim]Enter para voltar ao menu[/dim]", default="")
+
+        elif opcao == "8":
+            webbrowser.open_new_tab(MAPA_POR_LOCAL_URL)
+            console.print(f"[green]Mapa aberto no navegador:[/green] {MAPA_POR_LOCAL_URL}")
             Prompt.ask("[dim]Enter para voltar ao menu[/dim]", default="")
 
 
@@ -854,6 +866,8 @@ def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
             com_mapa=not args.sem_mapa,
             com_mapa_municipios=ufs_mapa,
             refazer_mapa=args.refazer_mapa,
+            com_mundo=not args.sem_mundo,
+            refazer_mundo=args.refazer_mundo,
             com_financas=not args.sem_financas,
             refazer_financas=args.refazer_financas,
             progresso=progresso,
@@ -1564,6 +1578,16 @@ def build_parser() -> argparse.ArgumentParser:
         "--refazer-mapa",
         action="store_true",
         help="ignora o cache do líder por município e baixa tudo de novo",
+    )
+    p_html.add_argument(
+        "--sem-mundo",
+        action="store_true",
+        help="não embutir o mapa mundial (votação para presidente no exterior)",
+    )
+    p_html.add_argument(
+        "--refazer-mundo",
+        action="store_true",
+        help="ignora o cache do mapa mundial e baixa as cidades do exterior de novo",
     )
     p_html.add_argument(
         "--sem-financas",
