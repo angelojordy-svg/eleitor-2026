@@ -31,12 +31,20 @@ def arquivo_bu(nomes: list[str]) -> str | None:
     return None
 
 
-def url_arquivo_urna(uf: str, municipio: str, zona: str, secao: str, hash_urna: str, nome: str) -> str:
+def url_arquivo_urna(
+    uf: str,
+    municipio: str,
+    zona: str,
+    secao: str,
+    hash_urna: str,
+    nome: str,
+    pleito: int = PLEITO,
+) -> str:
     uf = uf.lower()
     mun = f"{int(municipio):05d}"
     zon = f"{int(zona):04d}"
     sec = f"{int(secao):04d}"
-    return f"{BASE_URL}/{CICLO}/arquivo-urna/{PLEITO}/dados/{uf}/{mun}/{zon}/{sec}/{hash_urna}/{nome}"
+    return f"{BASE_URL}/{CICLO}/arquivo-urna/{pleito}/dados/{uf}/{mun}/{zon}/{sec}/{hash_urna}/{nome}"
 
 
 def secoes_com_aux(secoes: list[Secao]) -> list[Secao]:

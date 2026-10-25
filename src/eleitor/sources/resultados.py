@@ -60,18 +60,18 @@ def url_foto(eleicao: int, uf: str | None, sqcand: str) -> str:
     return f"{BASE_URL}/{CICLO}/{eleicao}/fotos/{abr}/{sqcand}.jpeg"
 
 
-def url_secoes_config(uf: str) -> str:
+def url_secoes_config(uf: str, pleito: int = PLEITO) -> str:
     uf = uf.lower()
-    return f"{BASE_URL}/{CICLO}/arquivo-urna/{PLEITO}/config/{uf}/{uf}-p{PLEITO:06d}-cs.json"
+    return f"{BASE_URL}/{CICLO}/arquivo-urna/{pleito}/config/{uf}/{uf}-p{pleito:06d}-cs.json"
 
 
-def url_secao_aux(uf: str, municipio: str, zona: str, secao: str) -> str:
+def url_secao_aux(uf: str, municipio: str, zona: str, secao: str, pleito: int = PLEITO) -> str:
     uf = uf.lower()
     mun = f"{int(municipio):05d}"
     zon = f"{int(zona):04d}"
     sec = f"{int(secao):04d}"
-    nome = f"p{PLEITO:06d}-{uf}-m{mun}-z{zon}-s{sec}-aux.json"
-    return f"{BASE_URL}/{CICLO}/arquivo-urna/{PLEITO}/dados/{uf}/{mun}/{zon}/{sec}/{nome}"
+    nome = f"p{pleito:06d}-{uf}-m{mun}-z{zon}-s{sec}-aux.json"
+    return f"{BASE_URL}/{CICLO}/arquivo-urna/{pleito}/dados/{uf}/{mun}/{zon}/{sec}/{nome}"
 
 
 def _to_int(valor: Any) -> int:

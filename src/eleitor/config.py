@@ -1,6 +1,7 @@
 BASE_URL = "https://resultados.tse.jus.br/oficial"
 CICLO = "ele2026"
 PLEITO = 3220
+PLEITO_SEGUNDO = 3221
 
 ELEICAO_FEDERAL = 6257
 ELEICAO_ESTADUAL = 6259

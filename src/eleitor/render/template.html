@@ -371,6 +371,18 @@
   svg.mapa-mundo path.pais.brasil-ref { stroke: #93a8bf; stroke-dasharray: 3 2; }
   .tabela-mundo-wrap { max-height: 480px; overflow: auto; border: 1px solid #e4ebf2; border-radius: 10px; }
   .tabela-mundo-wrap table.tabela th { position: sticky; top: 0; z-index: 1; }
+  .selo-fonte {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .2px;
+    vertical-align: middle;
+  }
+  .selo-fonte.bu { background: #fff3cd; color: #7a5200; border: 1px solid #f0c36d; }
+  .selo-fonte.oficial { background: #e6f4ea; color: #1e6b3a; border: 1px solid #9fd3ae; }
   .balao {
     position: fixed;
     z-index: 60;
@@ -959,6 +971,9 @@ function statusDaArea(topo, ehSegundoTurno) {
   }
   const lider = topo[0];
   const pst = apuracaoDe(topo);
+  if (MAPA_CTX && MAPA_CTX.tipo === "pais" && MAPA_CTX.fonte === "bu") {
+    return `prévia BU — ${pct(lider[1])} dos válidos`;
+  }
   if (pst !== null && pst >= 100) {
     if (MAPA_CTX && MAPA_CTX.tipo === "pais") return `apuração encerrada — ${pct(lider[1])} dos válidos`;
     if (lider[1] > 50) return `resultado definido — eleito com ${pct(lider[1])}`;
@@ -1017,15 +1032,24 @@ function resumoDeApuracao(tops) {
   return { cem: cem, andamento: andamento, sem: sem };
 }
 
-function textoDaApuracao(topo) {
+function textoDaApuracao(topo, info) {
+  if (MAPA_CTX && MAPA_CTX.fonte === "bu" && info && info.cobertura) {
+    const total = info.cobertura.secoes || 0;
+    return total > 0 ? Math.round(info.cobertura.lidas * 100 / total) + "%" : "—";
+  }
   const pst = apuracaoDe(topo);
   if (pst === null || pst <= 0) return "—";
   return pst + "%";
 }
 
 /* Mostra o rótulo quando faz diferença: apuração parcial (em andamento) ou
-   quando o usuário pediu para ver todas. */
-function mostrarRotulo(topo) {
+   quando o usuário pediu para ver todas. Na prévia BU, o rótulo é a cobertura. */
+function mostrarRotulo(topo, info) {
+  if (MAPA_CTX && MAPA_CTX.fonte === "bu") {
+    if (MAPA_ROTULOS) return true;
+    const cob = info && info.cobertura;
+    return !!cob && cob.lidas > 0 && cob.lidas < cob.secoes;
+  }
   const pst = apuracaoDe(topo);
   if (MAPA_ROTULOS) return pst !== null;
   return pst !== null && pst > 0 && pst < 100;
@@ -1051,7 +1075,7 @@ function aplicarRotulos() {
     const info = MAPA_ALVOS[caminho.dataset.chave];
     if (!info) continue;
     const topo = MAPA_CACHE[info.chave] || info.topo;
-    if (!mostrarRotulo(topo)) continue;
+    if (!mostrarRotulo(topo, info)) continue;
     let cx, cy, largura;
     if (info.rotuloX !== undefined) {
       cx = info.rotuloX;
@@ -1064,7 +1088,7 @@ function aplicarRotulos() {
       cy = caixa.y + caixa.height / 2;
       largura = caixa.width;
     }
-    criarRotulo(svg, cx, cy, Math.max(8, Math.min(15, largura / 5.5)), textoDaApuracao(topo));
+    criarRotulo(svg, cx, cy, Math.max(8, Math.min(15, largura / 5.5)), textoDaApuracao(topo, info));
   }
 }
 
@@ -1073,7 +1097,13 @@ function alternarRotulos(ligado) {
   aplicarRotulos();
 }
 
-function controleDeRotulos(tops) {
+function controleDeRotulos(tops, fonte) {
+  if (fonte === "bu") {
+    return `<div class="controle-rotulo">
+      <label><input type="checkbox" ${MAPA_ROTULOS ? "checked" : ""} onchange="alternarRotulos(this.checked)"> mostrar a cobertura BU no mapa</label>
+      <div class="dica" style="margin:4px 0 0">Cobertura = urnas com BU recebida / urnas previstas no país; os rótulos aparecem sozinhos onde a cobertura ainda é parcial.</div>
+    </div>`;
+  }
   const r = resumoDeApuracao(tops);
   const partes = [];
   if (r.andamento) partes.push(`<strong>${r.andamento}</strong> em andamento`);
@@ -1111,14 +1141,25 @@ function htmlDoBalao(info, topo) {
     if (info.tipo === "pais" && info.cidades && info.cidades.length) {
       linhas.push(`<div class="balao-linha obs">${info.cidades.length} cidade(s) no exterior</div>`);
     }
+    if (info.fonte === "bu" && info.cobertura) {
+      linhas.push(`<div class="balao-linha obs">BU: ${info.cobertura.lidas} de ${info.cobertura.secoes} urnas</div>`);
+    }
   } else if (topo && topo[0] && topo[1]) {
     linhas.push(`<div class="balao-linha obs">2º turno: ${esc(topo[0][3])} x ${esc(topo[1][3])}</div>`);
   } else {
     linhas.push(`<div class="balao-linha obs">${info.tipo === "pais" ? "sem votos no exterior" : "sem votos apurados por aqui"}</div>`);
   }
-  const pst = apuracaoDe(topo);
-  if (pst !== null) {
-    linhas.push(`<div class="balao-linha">Apuração: <strong>${pst}%</strong> das seções</div>`);
+  if (info.fonte === "bu") {
+    if (info.cobertura) {
+      const totalCob = info.cobertura.secoes || 0;
+      const pctCob = totalCob > 0 ? Math.round(info.cobertura.lidas * 100 / totalCob) : 0;
+      linhas.push(`<div class="balao-linha">BU: <strong>${pctCob}%</strong> das urnas (${info.cobertura.lidas}/${totalCob})</div>`);
+    }
+  } else {
+    const pst = apuracaoDe(topo);
+    if (pst !== null) {
+      linhas.push(`<div class="balao-linha">Apuração: <strong>${pst}%</strong> das seções</div>`);
+    }
   }
   linhas.push(`<div class="balao-linha obs">${esc(statusDaArea(topo, areaVaiAo2Turno(info)))}</div>`);
   if (info.buscando) {
@@ -1245,6 +1286,7 @@ async function topoDoPaisAoVivo(info) {
 
 async function buscarAoVivo(info) {
   if (info.buscando || MAPA_CACHE[info.chave] || MAPA_ENCERROU[info.chave]) return;
+  if (info.tipo === "pais" && MAPA_CTX && MAPA_CTX.fonte === "bu") return;
   if (typeof navigator !== "undefined" && navigator.onLine === false) return;
   info.buscando = true;
   const posicao = MAPA_ATUAL === info && $("#balao") ? { x: 0, y: 0 } : null;
@@ -1480,13 +1522,13 @@ function seletorDeEstados(uf) {
   </select></div>`;
 }
 
-function painelDeCores(tops, totalUnidades, rotulo, extra) {
+function painelDeCores(tops, totalUnidades, rotulo, extra, fonte) {
   return `<div class="painel">
     <h3>Cores</h3>
     <p class="dica" style="margin-top:0">Cada área recebe a cor do <strong>partido mais votado</strong>; a intensidade mostra o tamanho da maioria.</p>
     ${legendaDeMapa(tops, totalUnidades, rotulo)}
     ${extra || ""}
-    ${controleDeRotulos(tops)}
+    ${controleDeRotulos(tops, fonte)}
   </div>`;
 }
 
@@ -1592,15 +1634,20 @@ function viewMapaUf(ufBruto, params) {
 
 /* ---------- Apuração mundial (votação no exterior) ---------- */
 
-function linhaDoExterior(turno) {
+function linhaDoExterior(turno, fonte, cobertura, totalTurno) {
   const m = DADOS.mundo || {};
-  const t = ((m.total || {})[turno]) || null;
+  const t = totalTurno || ((m.total || {})[turno]) || null;
   const meta = m.meta || {};
   const resumo = `${fmt(meta.cidades || 0)} cidades em ${fmt(meta.paises || 0)} países`;
-  if (!t || !t[0]) {
-    return `<p class="dica"><strong>Exterior:</strong> sem votos apurados • ${resumo}.</p>`;
+  if (fonte === "bu" && cobertura && cobertura.total) {
+    const c = cobertura.total;
+    const pctCob = c.eletronicas ? Math.round(c.lidas * 100 / c.eletronicas) : null;
+    const base = t && t[0] && t[0][2]
+      ? `${esc(t[0][3])} (${esc(t[0][0])}) ${pct(t[0][1])} dos válidos`
+      : "sem votos";
+    return `<p class="dica"><strong>Exterior (prévia BU):</strong> ${base} • ${fmt(c.lidas)} de ${fmt(c.eletronicas)} urnas eletrônicas${pctCob !== null ? " (" + pctCob + "%)" : ""} • ${fmt(c.secoes)} seções no total • ${resumo}.</p>`;
   }
-  if (!t[0][2]) {
+  if (!t || !t[0] || !t[0][2]) {
     return `<p class="dica"><strong>Exterior:</strong> sem votos apurados • ${resumo}.</p>`;
   }
   const [p, share, , nome] = t[0];
@@ -1610,11 +1657,12 @@ function linhaDoExterior(turno) {
   } • ${resumo}.</p>`;
 }
 
-function svgDoMundo(dados, turno) {
+function svgDoMundo(dados, turno, fonte, cobertura) {
   const m = DADOS.mundo || {};
   const proj = m.proj || {};
   const vb = proj.viewBox || [0, 0, proj.largura || 1000, proj.altura || 440];
   const eleicao = turno === "2" ? 6258 : 6257;
+  const cobPaises = (cobertura && cobertura.paises) || {};
   const partes = [];
   for (const iso of Object.keys(m.paises || {}).sort()) {
     const geo = m.paises[iso];
@@ -1628,6 +1676,8 @@ function svgDoMundo(dados, turno) {
       iso: iso,
       nome: nome,
       topo: topo,
+      fonte: fonte,
+      cobertura: cobPaises[iso] || null,
       eleicao: eleicao,
       cargo: "1",
       quantidade: 2,
@@ -1653,12 +1703,13 @@ function filtrarTabelaMundo(valor) {
   });
 }
 
-function tabelaMundo(dados, turno) {
+function tabelaMundo(dados, turno, fonte, cobertura) {
   const m = DADOS.mundo || {};
   if (!Object.keys(dados || {}).length) {
     return `<div class="painel"><h3 style="margin-top:0">Como cada país votou</h3><div class="vazio">Ainda não há votos apurados neste turno.</div></div>`;
   }
   const paises = Object.keys(m.paises || {}).filter((iso) => ((m.paises[iso] || {}).cidades || []).length);
+  const cobPaises = (cobertura && cobertura.paises) || {};
   const linhas = paises.map((iso) => {
     const topo = dados[iso];
     return {
@@ -1670,17 +1721,25 @@ function tabelaMundo(dados, turno) {
   }).sort((a, b) => b.votos - a.votos || a.nome.localeCompare(b.nome));
   const corpo = linhas.map((l) => {
     const topo = l.topo;
+    const cob = fonte === "bu" ? (cobPaises[l.iso] || null) : null;
+    const ultima = fonte === "bu"
+      ? (cob ? `${fmt(cob.lidas)}/${fmt(cob.secoes)}` : "—")
+      : (apuracaoDe(topo) !== null ? apuracaoDe(topo) + "%" : "—");
     const celulas = temVotos(topo)
-      ? `<td>${esc(topo[0][3])}</td><td>${esc(topo[0][0])}</td><td class="num">${fmt(topo[0][2])}</td><td class="num">${pct(topo[0][1])}</td><td class="num">${apuracaoDe(topo) !== null ? apuracaoDe(topo) + "%" : "—"}</td>`
-      : `<td>—</td><td>—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td>`;
+      ? `<td>${esc(topo[0][3])}</td><td>${esc(topo[0][0])}</td><td class="num">${fmt(topo[0][2])}</td><td class="num">${pct(topo[0][1])}</td><td class="num">${ultima}</td>`
+      : `<td>—</td><td>—</td><td class="num">—</td><td class="num">—</td><td class="num">${ultima}</td>`;
     return `<tr data-iso="${esc(l.iso)}" data-pais="${esc(normalizar(l.nome))}"><td>${esc(l.nome)}</td>${celulas}</tr>`;
   }).join("");
   const comVotos = linhas.filter((l) => temVotos(l.topo)).length;
+  const rotuloUltima = fonte === "bu" ? "BU (urnas)" : "Apuração";
+  const nota = fonte === "bu"
+    ? "Prévia dos boletins de urna do TSE; não é a totalização oficial. Para atualizar, regenere o HTML."
+    : "A tabela mostra o snapshot; com internet, o balão de cada país no mapa busca o número mais novo no TSE.";
   return `<div class="painel">
     <h3 style="margin-top:0">Como cada país votou</h3>
     <div class="filtros"><input type="search" placeholder="Filtrar país..." oninput="filtrarTabelaMundo(this.value)"><span class="dica" id="mundo-contagem">${comVotos} de ${linhas.length} com votos</span></div>
-    <div class="tabela-mundo-wrap"><table class="tabela" id="tabela-mundo"><thead><tr><th>País</th><th>Vencedor</th><th>Partido</th><th class="num">Votos</th><th class="num">% válidos</th><th class="num">Apuração</th></tr></thead><tbody>${corpo}</tbody></table></div>
-    <p class="dica">A tabela mostra o snapshot; com internet, o balão de cada país no mapa busca o número mais novo no TSE.</p>
+    <div class="tabela-mundo-wrap"><table class="tabela" id="tabela-mundo"><thead><tr><th>País</th><th>Vencedor</th><th>Partido</th><th class="num">Votos</th><th class="num">% válidos</th><th class="num">${rotuloUltima}</th></tr></thead><tbody>${corpo}</tbody></table></div>
+    <p class="dica">${nota}</p>
   </div>`;
 }
 
@@ -1719,33 +1778,47 @@ function viewMundo(params) {
   const tops = chavesComVotos.map((iso) => dados[iso]);
   const meta = m.meta || {};
   const nComVotos = chavesComVotos.length;
-  const totalTurno = ((m.total || {})[turno]) || null;
+  const fonte = ((m.fonte || {})[turno]) || "oficial";
+  const bu2 = ((m.bu || {})["2"] || null);
+  const cobertura = ((m.cobertura || {})[turno]) || (fonte === "bu" && bu2 ? bu2.cobertura : null);
+  const totalTurno = fonte === "bu" && bu2 ? bu2.total : (((m.total || {})[turno]) || null);
+  const selo = fonte === "bu"
+    ? '<span class="selo-fonte bu">Preliminar — BU</span>'
+    : '<span class="selo-fonte oficial">Oficial TSE</span>';
+  const notaFonte = fonte === "bu"
+    ? `<p class="dica"><strong>Prévia BU:</strong> boletins de urna já recebidos pelo TSE; não é a totalização oficial. O TSE consolida o exterior após as 17h (Brasília). Para atualizar, regenere o HTML.</p>`
+    : "";
   const nota = !nComVotos
-    ? (totalTurno
-      ? `<p class="dica">Já há votos no total do exterior; passe o mouse nos países para atualizar o mapa ou regenere o HTML.</p>`
-      : (turno === "2"
-        ? `<p class="dica">A apuração do 2º turno no exterior ainda não começou — o mapa será preenchido conforme o TSE totalizar.</p>`
-        : `<p class="dica">Ainda não há votos apurados no exterior neste turno.</p>`))
+    ? (fonte === "bu"
+      ? `<p class="dica">Ainda não há BUs com votos para pintar o mapa.</p>`
+      : (totalTurno
+        ? `<p class="dica">Já há votos no total do exterior; passe o mouse nos países para atualizar o mapa ou regenere o HTML.</p>`
+        : (turno === "2"
+          ? `<p class="dica">A apuração do 2º turno no exterior ainda não começou — o mapa será preenchido conforme o TSE totalizar.</p>`
+          : `<p class="dica">Ainda não há votos apurados no exterior neste turno.</p>`)))
     : "";
   const abasTurno = turnos.map((t) =>
     `<button class="${t === turno ? "ativa" : ""}" onclick="location.hash='#/mundo?turno=${t}'">${t === "2" ? "2º turno" : "1º turno"}</button>`
   ).join("");
   const notaBrasil = `<div class="legenda-mapa"><div class="linha"><span class="amostra-neutra"></span>Brasil = votação nacional (fora deste recorte)<span class="n">—</span></div></div>`;
-  MAPA_CTX = { tipo: "pais", turno: turno, eleicao: turno === "2" ? 6258 : 6257, res: dados, em2Turno: [] };
+  MAPA_CTX = { tipo: "pais", turno: turno, eleicao: turno === "2" ? 6258 : 6257, res: dados, em2Turno: [], fonte: fonte };
   MAPA_ALVOS = {};
   return `${abasMapa("mundo")}
-    <h2>Apuração mundial — Presidente</h2>
+    <h2>Apuração mundial — Presidente ${selo}</h2>
     <div class="abas">${abasTurno}</div>
-    ${linhaDoExterior(turno)}
+    ${linhaDoExterior(turno, fonte, cobertura, totalTurno)}
+    ${notaFonte}
     ${nota}
     <div class="mapa-wrap">
-      ${svgDoMundo(dados, turno)}
+      ${svgDoMundo(dados, turno, fonte, cobertura)}
       <div class="mapa-lado">
-        ${painelDeCores(tops, meta.paises || Object.keys(m.paises).length, "país(es)", notaBrasil)}
+        ${painelDeCores(tops, meta.paises || Object.keys(m.paises).length, "país(es)", notaBrasil, fonte)}
       </div>
     </div>
-    ${tabelaMundo(dados, turno)}
-    <p class="dica">Passe o mouse (ou toque) em um país para ver <strong>votação, 2º colocado e apuração</strong>. O Brasil aparece em cinza: aqui só entra a votação no exterior. Base: projeção Mollweide • geometria Natural Earth (domínio público) • ${fmt(meta.cidades || 0)} cidades em ${fmt(meta.paises || 0)} países.</p>`;
+    ${tabelaMundo(dados, turno, fonte, cobertura)}
+    <p class="dica">${fonte === "bu"
+      ? "Esta é uma prévia dos boletins de urna; o mapa não atualiza ao vivo no 2º turno. O Brasil aparece em cinza: aqui só entra a votação no exterior."
+      : "Passe o mouse (ou toque) em um país para ver <strong>votação, 2º colocado e apuração</strong>. O Brasil aparece em cinza: aqui só entra a votação no exterior."} Base: projeção Mollweide • geometria Natural Earth (domínio público) • ${fmt(meta.cidades || 0)} cidades em ${fmt(meta.paises || 0)} países.</p>`;
 }
 
 /* ---------- Gastos de campanha (ranking) ---------- */
@@ -2569,6 +2642,7 @@ function agendarMapaTurno2(tarefas) {
 function agendarMundoTurno2(tarefas) {
   const m = DADOS.mundo;
   if (!m || !m.total) return;
+  if (m.fonte && m.fonte["2"] === "bu") return;
   tarefas.push(fetchJson(urlResultado(6258, 1, "zz")).then((j) => {
     const topo = topoDaResposta(parseResultadoJS(j), 2);
     if (temVotos(topo)) {

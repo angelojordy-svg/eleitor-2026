@@ -20,6 +20,7 @@ python -m venv .venv
 .venv\Scripts\eleitor html --municipio Ananindeua/PA --out resultado-2026.html
 .venv\Scripts\eleitor mapa --cargo governador --turno 1 --ritmo 0.04 --workers 10
 .venv\Scripts\eleitor financas --cargo governador --ordenar gasto
+.venv\Scripts\eleitor conferir-mundo             # prévia BU x totalização oficial do exterior
 .venv\Scripts\eleitor selftest                    # smoke test com a API real
 .venv\Scripts\eleitor mapa-urnas --xlsx "In Put\boletim_urna_parauapebas_2026_z75_z106_com_locais.xlsx"
                                                   # HTML + fundo OSM offline + KML/CSV Google (In Put\google)
@@ -38,7 +39,8 @@ Publicar o site nacional: duplo clique em `publicar.bat` (gera o HTML e faz push
 Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/Google e publica em `/mapa/parauapebas/`).
 
 ## Mapa do código
-- `config.py` — códigos de 2026, cargos, TTLs (fonte de verdade).
+- `config.py` — códigos de 2026, cargos, TTLs (fonte de verdade); `PLEITO=3220` (1º turno) e
+  `PLEITO_SEGUNDO=3221` (2º turno, inclusive os BUs do exterior).
 - `http.py` — `CachedClient`: cache em disco com ETag/304, throttle 0,15s, `get_json`/`get_bytes`/`get_urls`.
 - `paises.py` — tabela estática `CIDADE_PAIS`/`PAISES` (código TSE da cidade do exterior → ISO2/nome),
   usada pelo mapa mundial; 134 países com seção + Vaticano (sem cidade no config de 2026).
@@ -58,6 +60,9 @@ Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/
 - `services/mundo.py` — mapa mundial: `bake_mundo` soma as cidades do exterior por país (1º/2º turno; o 2º
   turno só consulta as 186 cidades se o agregado `zz` tiver votos), `coletar_mundo` junta geometria +
   `res`/`validos`/`total`/`meta`; Brasil fica só como geometria (cinza).
+- `services/mundo_bu.py` — prévia do 2º turno no exterior pelos **BUs do pleito 3221**: lê o config 3221,
+  baixa aux+BU só das seções com `da`, agrega por cidade/país e mantém cache incremental
+  (`mundo\mundo-bu-t2.json`); `comparar_mundo()` confronta a prévia com o oficial.
 - `services/snapshot.py` — dados do HTML offline (Brasil/estados/municípios/seções/fotos/mapa/mundo/geometria e finanças).
   Finanças = vetores alinhados (`colunas`+`itens`); votos por `SQ_CANDIDATO` da EA20 (Presidente = nacional, estaduais = por UF).
 - `sources/planilha.py` — lê a planilha de BUs com `openpyxl` (Leia-me, Locais, Índice das urnas, Resumo por urna,
@@ -145,6 +150,13 @@ Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/
   (Portugal continental > Açores > Madeira; Cisjordânia + Gaza = PS). Brasil entra só como geometria cinza.
 - No hover o navegador busca as cidades do país (1–10 req; debounce de 280 ms) e agrega por número de candidato;
   o "Atualizar online" busca só o agregado `zz` do 2º turno (as cores por país atualizam no hover).
+- **2º turno antes das 17h**: o JSON oficial `6258` fica zerado, mas os BUs das seções já fechadas estão em
+  `.../arquivo-urna/3221/...` (`da`/`ha` no config 3221). O `services/mundo_bu.py` soma esses BUs e mostra uma
+  prévia com selo **Preliminar — BU**, cobertura `N de 1.282 urnas eletrônicas` (1.351 seções principais; as
+  manuais/atrasadas não têm BU) e cache incremental. Ex.: Japão 119 BUs = Lula 7.098 x Flávio 28.538, igual ao G1.
+  O oficial substitui a BU automaticamente quando o `bake_mundo` do 2º turno encontra votos.
+- `eleitor conferir-mundo` compara a prévia BU com o oficial por país (e avisa quando o oficial ainda está zerado);
+  rode depois das 17h. O selo/coluna da tabela usam a cobertura BU, não a apuração oficial.
 
 ## Fatos estatísticos (correlação / co-votação)
 - A unidade é a **urna**; o cluster é o **local** (55 em Parauapebas). A ICC das shares é ~0,98: o n efetivo é
@@ -168,8 +180,8 @@ Publicar o mapa por local: duplo clique em `publicar-mapa.bat` (gera fundo/HTML/
 Pronto: resultados ao vivo (BR/UF/município/zona), seções via EA18, votos por seção via BU, artefato HTML offline
 (Brasil/estados/municípios/seções/congresso), mapa do Brasil (estados + 5.571 municípios, 1º/2º turno, cor por
 partido + maioria, hachura no 2º turno, balão com votação/apuração), **mapa mundial** (aba `#/mundo`: votação no
-exterior por país, 1º/2º turno, hover que soma as cidades, tabela e Brasil cinza; geometria Natural Earth/Mollweide),
-**finanças** (CLI `eleitor financas` + aba
+exterior por país, 1º/2º turno, hover que soma as cidades, tabela e Brasil cinza; geometria Natural Earth/Mollweide;
+**prévia BU do 2º turno** com selo de cobertura, cache incremental e `eleitor conferir-mundo`), **finanças** (CLI `eleitor financas` + aba
 `#/ranking`; ~16.962 candidatos, dados parciais), **mapa por local de votação** (CLI `eleitor mapa-urnas` +
 `In Put/mapa_eleitoral_parauapebas_2026.html`: 55 locais, 586 urnas, comparação A×B por cargo em Leaflet com
 fundo OSM offline embutido e ruas Esri online; publicado em

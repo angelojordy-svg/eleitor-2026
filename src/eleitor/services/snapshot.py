@@ -401,6 +401,8 @@ def coletar_snapshot(
     refazer_mapa: bool = False,
     com_mundo: bool = True,
     refazer_mundo: bool = False,
+    com_mundo_bu: bool = True,
+    refazer_mundo_bu: bool = False,
     com_financas: bool = True,
     refazer_financas: bool = False,
     progresso: Callable[[str], None] | None = None,
@@ -458,7 +460,14 @@ def coletar_snapshot(
         from eleitor.services.mundo import coletar_mundo
 
         try:
-            mundo = coletar_mundo(client, loc, progresso=progresso, refazer=refazer_mundo)
+            mundo = coletar_mundo(
+                client,
+                loc,
+                progresso=progresso,
+                refazer=refazer_mundo,
+                com_bu=com_mundo_bu,
+                refazer_bu=refazer_mundo_bu,
+            )
         except Exception as exc:  # rede/geometria indisponível: artefato segue sem o mapa mundial
             aviso(f"Mapa mundial indisponível: {exc}")
 

@@ -868,6 +868,8 @@ def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
             refazer_mapa=args.refazer_mapa,
             com_mundo=not args.sem_mundo,
             refazer_mundo=args.refazer_mundo,
+            com_mundo_bu=not args.sem_mundo_bu,
+            refazer_mundo_bu=args.refazer_mundo_bu,
             com_financas=not args.sem_financas,
             refazer_financas=args.refazer_financas,
             progresso=progresso,
@@ -879,6 +881,94 @@ def cmd_html(client: CachedClient, args: argparse.Namespace) -> int:
     tamanho_mb = destino.stat().st_size / (1024 * 1024)
     console.print(f"[green]Artefato gerado:[/green] {destino} ({tamanho_mb:.1f} MB)")
     console.print(f"Municípios incluídos: {', '.join(m.nome + '/' + m.uf.upper() for m in municipios) or 'nenhum (só Brasil/Estados)'}")
+    return 0
+
+
+def cmd_conferir_mundo(client: CachedClient, args: argparse.Namespace) -> int:
+    """Compara a prévia dos BUs do exterior com a totalização oficial."""
+
+    from eleitor.paises import PAISES
+    from eleitor.services.mundo import bake_mundo
+    from eleitor.services.mundo_bu import bake_mundo_bu, comparar_mundo
+
+    def progresso(msg: str) -> None:
+        console.print(f"[dim]{msg}[/dim]")
+
+    with console.status("Lendo os BUs do exterior (prévia do 2º turno)..."):
+        bu = bake_mundo_bu(client, progresso=progresso, refazer=args.refazer)
+    if not bu:
+        console.print("[yellow]Sem BUs disponíveis para a prévia do 2º turno.[/yellow]")
+        return 1
+
+    meta = bu.get("meta", {})
+    console.print(
+        f"[bold]Prévia BU:[/bold] {meta.get('secoes_lidas', 0)} de "
+        f"{meta.get('secoes_eletronicas', 0)} urnas eletrônicas "
+        f"({meta.get('secoes_total', 0)} seções no total) • config 3221 de "
+        f"{meta.get('config_gerado', '—')} • atualizado em {meta.get('gerado_em', '—')}"
+    )
+
+    with console.status("Buscando a totalização oficial do 2º turno..."):
+        oficial = bake_mundo(client, Localidades(client), "2", progresso=progresso, refazer=args.refazer)
+    cmp = comparar_mundo(bu, oficial)
+
+    if not cmp["oficial_disponivel"]:
+        console.print(
+            "[yellow]O TSE ainda não iniciou a totalização oficial do exterior "
+            "(prevista para após as 17h de Brasília).[/yellow]"
+        )
+        console.print("[dim]Mostrando apenas a prévia dos BUs já recebidos.[/dim]")
+
+    linhas = []
+    for item in cmp["paises"]:
+        iso = item["iso"]
+        topo_bu = item["bu"] or []
+        topo_of = item["oficial"]
+        cob = item["cobertura"] or {}
+        cobertura = f"{cob.get('lidas', 0)}/{cob.get('secoes', 0)}"
+        bu_lider = f"{topo_bu[0][3]} ({topo_bu[0][0]}) {fmt_int(topo_bu[0][2])}" if topo_bu else "—"
+        if topo_of:
+            of_lider = f"{topo_of[0][3]} ({topo_of[0][0]}) {fmt_int(topo_of[0][2])}"
+            dif = item["dif_lider"]
+            confere = "sim" if dif == 0 else ("líder difere" if topo_bu[0][0] != topo_of[0][0] else "dif. de votos")
+        else:
+            of_lider = "—"
+            dif = None
+            confere = "—"
+        linhas.append((iso, cob, cobertura, bu_lider, of_lider, dif, confere))
+
+    linhas.sort(key=lambda l: (l[1] or {}).get("lidas", 0), reverse=True)
+    tabela = Table(
+        title="Prévia BU x oficial — exterior (2º turno)",
+        box=box.SIMPLE_HEAVY,
+    )
+    tabela.add_column("País")
+    tabela.add_column("Cobertura BU", justify="right")
+    tabela.add_column("BU (líder)", max_width=38)
+    tabela.add_column("Oficial (líder)", max_width=38)
+    tabela.add_column("Dif. líder", justify="right")
+    tabela.add_column("Conferência")
+    for iso, _, cobertura, bu_lider, of_lider, dif, confere in linhas:
+        tabela.add_row(
+            PAISES.get(iso, {}).get("nome", iso),
+            cobertura,
+            bu_lider,
+            of_lider,
+            fmt_int(dif) if dif is not None else "—",
+            confere,
+        )
+    console.print(tabela)
+
+    total = cmp["total"] or {}
+    if cmp["oficial_disponivel"]:
+        bu_total = total.get("bu") or []
+        of_total = total.get("oficial") or []
+        console.print(
+            "[bold]Total exterior — BU:[/bold] "
+            f"{fmt_int(bu_total[0][2]) if bu_total else 0} votos do líder • "
+            "[bold]oficial:[/bold] "
+            f"{fmt_int(of_total[0][2]) if of_total else 0} votos do líder"
+        )
     return 0
 
 
@@ -1590,6 +1680,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="ignora o cache do mapa mundial e baixa as cidades do exterior de novo",
     )
     p_html.add_argument(
+        "--sem-mundo-bu",
+        action="store_true",
+        help="não incluir a prévia do 2º turno pelos boletins de urna (BU)",
+    )
+    p_html.add_argument(
+        "--refazer-mundo-bu",
+        action="store_true",
+        help="ignora o cache incremental dos BUs do exterior e baixa tudo de novo",
+    )
+    p_html.add_argument(
         "--sem-financas",
         action="store_true",
         help="não incluir o ranking de gastos de campanha (prestação de contas)",
@@ -1620,6 +1720,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_mapa.add_argument("--mapa-municipios", default="br", metavar="br|UFS", help="br (padrão) ou lista de UFs")
     p_mapa.add_argument("--refazer", action="store_true", help="ignora o cache e baixa de novo")
     p_mapa.set_defaults(func=cmd_mapa)
+
+    p_conf = sub.add_parser(
+        "conferir-mundo",
+        help="compara a prévia BU do 2º turno no exterior com o resultado oficial",
+    )
+    p_conf.add_argument(
+        "--refazer",
+        action="store_true",
+        help="ignora os caches dos BUs e do resultado oficial e baixa de novo",
+    )
+    p_conf.set_defaults(func=cmd_conferir_mundo)
 
     p_fin = sub.add_parser("financas", help="ranking de gastos de campanha (prestação de contas do TSE)")
     p_fin.add_argument("--cargo", type=parse_cargo, default=None, help="filtra por cargo")

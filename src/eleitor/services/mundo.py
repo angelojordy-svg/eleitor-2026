@@ -28,6 +28,10 @@ ELEICAO_MUNDO = {"1": 6257, "2": 6258}
 EPS_MUNDO = 0.35
 
 
+def _tem_votos(topo: list[list[Any]] | None) -> bool:
+    return bool(topo and topo[0] and topo[0][2] > 0)
+
+
 def _codigo(municipio: Municipio) -> str:
     return str(municipio.codigo).strip().zfill(5)
 
@@ -228,6 +232,8 @@ def coletar_mundo(
     loc: Localidades,
     progresso: Callable[[str], None] | None = None,
     refazer: bool = False,
+    com_bu: bool = True,
+    refazer_bu: bool = False,
 ) -> dict[str, Any] | None:
     """Geometria do mundo + resultados por país do 1º e do 2º turno."""
 
@@ -294,6 +300,26 @@ def coletar_mundo(
         validos[turno] = dados_turno["validos"]
         total[turno] = dados_turno["total"]
 
+    bu: dict[str, Any] | None = None
+    if com_bu:
+        from eleitor.services.mundo_bu import bake_mundo_bu
+
+        try:
+            bu = bake_mundo_bu(client, progresso=progresso, refazer=refazer_bu)
+        except Exception as exc:  # rede/BU indisponível: mapa oficial continua
+            aviso(f"Mundo BU — prévia indisponível: {exc}")
+
+    fonte = {"1": "oficial", "2": "oficial"}
+    cobertura: dict[str, dict[str, Any] | None] = {"1": None, "2": None}
+    if bu:
+        cobertura["2"] = bu.get("cobertura")
+        if not _tem_votos(total.get("2")):
+            # Antes das 17h o oficial está zerado: usa a prévia dos BUs.
+            res["2"] = bu.get("res") or {}
+            validos["2"] = bu.get("validos") or {}
+            total["2"] = bu.get("total")
+            fonte["2"] = "bu"
+
     return {
         "proj": {
             "nome": "mollweide",
@@ -306,5 +332,8 @@ def coletar_mundo(
         "res": res,
         "validos": validos,
         "total": total,
+        "fonte": fonte,
+        "cobertura": cobertura,
+        "bu": {"2": bu} if bu else None,
         "meta": {"paises": meta_paises, "cidades": meta_cidades},
     }

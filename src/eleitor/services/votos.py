@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from eleitor.config import TTL_AUX, TTL_LIVE, TTL_SECOES
+from eleitor.config import PLEITO, TTL_AUX, TTL_LIVE, TTL_SECOES
 from eleitor.http import CachedClient, NotFound
 from eleitor.models import Candidato, Municipio, ResultadoCargo, ZonaSecoes
 from eleitor.sources.bu import parse_bu
@@ -52,8 +52,9 @@ def secoes(
     zona: str | None = None,
     com_status: bool = True,
     ttl: float = TTL_SECOES,
+    pleito: int = PLEITO,
 ) -> list[ZonaSecoes]:
-    data = client.get_json(url_secoes_config(uf), ttl=ttl)
+    data = client.get_json(url_secoes_config(uf, pleito=pleito), ttl=ttl)
     zonas = parse_secoes(data or {}, uf, municipio)
     if zona is not None:
         zonas = [z for z in zonas if z.zona == f"{int(zona):04d}"]
@@ -68,7 +69,7 @@ def secoes(
                 continue
             if not sec.data_aux:
                 continue
-            urls.append((sec, url_secao_aux(uf, municipio, z.zona, sec.numero)))
+            urls.append((sec, url_secao_aux(uf, municipio, z.zona, sec.numero, pleito=pleito)))
 
     if urls:
         bodies = client.get_urls([u for _, u in urls], ttl=TTL_AUX, allow_404=True)
@@ -128,12 +129,13 @@ def votos_secoes_zona(
     municipio: str,
     zona: str,
     ttl: float = TTL_AUX,
+    pleito: int = PLEITO,
 ) -> dict[str, dict]:
-    zonas = secoes(client, uf, municipio, zona=zona, ttl=ttl)
+    zonas = secoes(client, uf, municipio, zona=zona, ttl=ttl, pleito=pleito)
     if not zonas:
         return {}
     alvos = [s for s in zonas[0].secoes if s.data_aux and s.principal is None]
-    urls_aux = [url_secao_aux(uf, municipio, zona, s.numero) for s in alvos]
+    urls_aux = [url_secao_aux(uf, municipio, zona, s.numero, pleito=pleito) for s in alvos]
     auxiliares = client.get_urls(urls_aux, ttl=ttl, allow_404=True)
 
     downloads: list[tuple[str, str]] = []
@@ -146,7 +148,7 @@ def votos_secoes_zona(
             hash_urna = item.get("hash")
             if not nome or not hash_urna:
                 continue
-            downloads.append((sec.numero, url_arquivo_urna(uf, municipio, zona, sec.numero, hash_urna, nome)))
+            downloads.append((sec.numero, url_arquivo_urna(uf, municipio, zona, sec.numero, hash_urna, nome, pleito=pleito)))
             break
 
     if not downloads:

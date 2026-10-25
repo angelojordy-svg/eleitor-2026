@@ -28,6 +28,9 @@ O site tem ainda:
   maioria, com abas **1º/2º turno**, balão ao vivo (soma as cidades do país no TSE) e
   tabela pesquisável "Como cada país votou". O Brasil aparece em cinza: este recorte é
   só do exterior. Funciona offline; a geometria Natural Earth vem embutida.
+  No **2º turno**, antes das 17h, o mapa usa uma **prévia dos boletins de urna (BU)**
+  do pleito 3221, com selo "Preliminar — BU" e cobertura (`N de 1.282 urnas eletrônicas`);
+  após a totalização oficial, o próprio build troca para o resultado do TSE.
 - **Balão + rótulos de apuração**: passar o mouse (ou tocar, no celular — o primeiro
   toque informa e o segundo abre) mostra líder, votos, % dos válidos, 2º colocado e o
   **% de apuração** (seções totalizadas), com o status ("apuração em andamento",
@@ -93,8 +96,8 @@ por candidato naquela urna. As especificações ASN.1 usadas estão em
 O comando `html` gera um artefato único offline (snapshot estilo site do TSE) com
 Brasil, 27 estados, o mapa do Brasil (estados e municípios) e os municípios informados,
 incluindo navegação por zona e seção e página de candidato. Flags: `--sem-fotos`,
-`--sem-secoes`, `--sem-mapa`, `--sem-mundo`, `--mapa-municipios br|UF,UF|none`,
-`--refazer-mapa`, `--refazer-mundo`, `--ritmo` e `--workers`.
+`--sem-secoes`, `--sem-mapa`, `--sem-mundo`, `--sem-mundo-bu`, `--mapa-municipios br|UF,UF|none`,
+`--refazer-mapa`, `--refazer-mundo`, `--refazer-mundo-bu`, `--ritmo` e `--workers`.
 
 O primeiro `html` com o mapa nacional baixa o líder por município dos 5.571 municípios
 (~11 mil requisições; ~8 min com `--ritmo 0.04 --workers 10`). O cálculo fica em cache
@@ -112,7 +115,9 @@ A geometria do mapa vem do IBGE (malhas) e é baixada uma única vez para
 (domínio público, `ISO_A2_EH`), projetada em Mollweide e cacheada como
 `mundo-50m.json` na mesma pasta. Os votos por país são a soma das cidades do exterior
 (`zz{mun:05d}`) e o 2º turno só baixa as 186 cidades quando o agregado `zz` já tem
-votos.
+votos. Antes das 17h, a prévia do 2º turno vem dos BUs do pleito **3221** (seções com
+`da`), com cache incremental; `eleitor conferir-mundo` compara essa prévia com a
+totalização oficial e mostra a cobertura por país.
 
 O artefato tem o botão **"Atualizar online"** no topo: com internet, busca os
 resultados mais recentes direto do TSE (Brasil, estados, municípios e zonas) sem
