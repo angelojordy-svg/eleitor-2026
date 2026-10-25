@@ -371,6 +371,11 @@
   svg.mapa-mundo path.pais.brasil-ref { stroke: #93a8bf; stroke-dasharray: 3 2; }
   .tabela-mundo-wrap { max-height: 480px; overflow: auto; border: 1px solid #e4ebf2; border-radius: 10px; }
   .tabela-mundo-wrap table.tabela th { position: sticky; top: 0; z-index: 1; }
+  .sw-cand { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: middle; }
+  table.tabela th small { font-weight: 600; color: var(--suave); text-transform: none; }
+  td.cand-vot .v { display: block; font-weight: 700; font-variant-numeric: tabular-nums; }
+  td.cand-vot .p { display: block; color: var(--suave); font-size: 11px; }
+  td.cand-venc { font-weight: 800; }
   .selo-fonte {
     display: inline-block;
     margin-left: 8px;
@@ -1286,7 +1291,7 @@ async function topoDoPaisAoVivo(info) {
 
 async function buscarAoVivo(info) {
   if (info.buscando || MAPA_CACHE[info.chave] || MAPA_ENCERROU[info.chave]) return;
-  if (info.tipo === "pais" && MAPA_CTX && MAPA_CTX.fonte === "bu") return;
+  if (info.tipo === "pais" && MAPA_CTX && (MAPA_CTX.fonte === "bu" || MAPA_CTX.turno === "2")) return;
   if (typeof navigator !== "undefined" && navigator.onLine === false) return;
   info.buscando = true;
   const posicao = MAPA_ATUAL === info && $("#balao") ? { x: 0, y: 0 } : null;
@@ -1703,11 +1708,77 @@ function filtrarTabelaMundo(valor) {
   });
 }
 
+function candidatosDoTurno(turno, dados) {
+  if (turno !== "2") return null;
+  const m = DADOS.mundo || {};
+  const total = ((m.total || {})[turno]) || ((m.bu || {})["2"] || {}).total || null;
+  let candidatos = (total || []).map((c) => ({ nome: c[3], p: c[0] })).filter((c) => c.nome);
+  if (candidatos.length !== 2) {
+    const unicos = new Map();
+    for (const topo of Object.values(dados || {})) {
+      for (const c of topo || []) unicos.set(c[3], { nome: c[3], p: c[0] });
+    }
+    candidatos = [...unicos.values()];
+  }
+  return candidatos.length === 2 ? candidatos : null;
+}
+
+function tabelaMundoDoisCandidatos(dados, turno, fonte, cobertura, candidatos) {
+  const m = DADOS.mundo || {};
+  const paises = Object.keys(m.paises || {}).filter((iso) => ((m.paises[iso] || {}).cidades || []).length);
+  const cobPaises = (cobertura && cobertura.paises) || {};
+  const linhas = paises.map((iso) => {
+    const topo = dados[iso];
+    return {
+      iso: iso,
+      nome: (m.paises[iso] || {}).nome || iso,
+      topo: topo,
+      votos: temVotos(topo) ? topo[0][2] : -1,
+    };
+  }).sort((a, b) => b.votos - a.votos || a.nome.localeCompare(b.nome));
+  const corpo = linhas.map((l) => {
+    const topo = l.topo;
+    const vencedor = topo && topo[0] ? topo[0][3] : null;
+    const porNome = {};
+    for (const c of topo || []) porNome[c[3]] = c;
+    const celulas = candidatos.map((c) => {
+      const v = porNome[c.nome];
+      if (!v) return `<td class="num cand-vot" data-cand="${esc(c.nome)}">—</td>`;
+      const venceu = vencedor === c.nome;
+      const estilo = venceu
+        ? `background:#eef6ff;box-shadow:inset 3px 0 0 ${corPartido(v[0])}`
+        : "";
+      return `<td class="num cand-vot ${venceu ? "cand-venc" : ""}" data-cand="${esc(c.nome)}" style="${estilo}"><span class="v">${fmt(v[2])}</span><span class="p">${pct(v[1])}</span></td>`;
+    }).join("");
+    const cob = fonte === "bu" ? (cobPaises[l.iso] || null) : null;
+    const ultima = fonte === "bu"
+      ? (cob ? `${fmt(cob.lidas)}/${fmt(cob.secoes)}` : "—")
+      : (apuracaoDe(topo) !== null ? apuracaoDe(topo) + "%" : "—");
+    return `<tr data-iso="${esc(l.iso)}" data-pais="${esc(normalizar(l.nome))}"><td>${esc(l.nome)}</td>${celulas}<td class="num">${ultima}</td></tr>`;
+  }).join("");
+  const comVotos = linhas.filter((l) => temVotos(l.topo)).length;
+  const rotuloUltima = fonte === "bu" ? "BU (urnas)" : "Apuração";
+  const nota = fonte === "bu"
+    ? "Prévia dos boletins de urna do TSE; não é a totalização oficial. Célula destacada = candidato vencedor no país."
+    : "Célula destacada = candidato vencedor no país; os votos mostram também o % dos válidos.";
+  const cabecalhos = candidatos.map((c) =>
+    `<th class="num"><span class="sw-cand" style="background:${corPartido(c.p)}"></span>${esc(c.nome)} <small>(${esc(c.p)})</small></th>`
+  ).join("");
+  return `<div class="painel">
+    <h3 style="margin-top:0">Como cada país votou</h3>
+    <div class="filtros"><input type="search" placeholder="Filtrar país..." oninput="filtrarTabelaMundo(this.value)"><span class="dica" id="mundo-contagem">${comVotos} de ${linhas.length} com votos</span></div>
+    <div class="tabela-mundo-wrap"><table class="tabela" id="tabela-mundo"><thead><tr><th>País</th>${cabecalhos}<th class="num">${rotuloUltima}</th></tr></thead><tbody>${corpo}</tbody></table></div>
+    <p class="dica">${nota}</p>
+  </div>`;
+}
+
 function tabelaMundo(dados, turno, fonte, cobertura) {
   const m = DADOS.mundo || {};
   if (!Object.keys(dados || {}).length) {
     return `<div class="painel"><h3 style="margin-top:0">Como cada país votou</h3><div class="vazio">Ainda não há votos apurados neste turno.</div></div>`;
   }
+  const candidatos = candidatosDoTurno(turno, dados);
+  if (candidatos) return tabelaMundoDoisCandidatos(dados, turno, fonte, cobertura, candidatos);
   const paises = Object.keys(m.paises || {}).filter((iso) => ((m.paises[iso] || {}).cidades || []).length);
   const cobPaises = (cobertura && cobertura.paises) || {};
   const linhas = paises.map((iso) => {
