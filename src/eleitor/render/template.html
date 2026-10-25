@@ -1771,7 +1771,13 @@ function viewMundo(params) {
   if (!m || !m.paises) return vazio('Sem mapa mundial neste snapshot. Gere o arquivo novamente sem "--sem-mundo" para habilitar.');
   const turnos = Object.keys(m.res || {}).sort();
   if (!turnos.length) return vazio("Sem dados da votação no exterior neste snapshot.");
-  let turno = params.get("turno") || "1";
+  let turno = params.get("turno");
+  if (!turno) {
+    // No dia do 2º turno, abre direto na prévia BU/oficial se já houver votos.
+    const res2 = (m.res || {})["2"] || {};
+    const tem2 = Object.keys(res2).some((iso) => temVotos(res2[iso]));
+    turno = tem2 ? "2" : "1";
+  }
   if (turnos.indexOf(turno) < 0) turno = turnos[0];
   const dados = (m.res || {})[turno] || {};
   const chavesComVotos = Object.keys(dados).filter((iso) => temVotos(dados[iso]));
